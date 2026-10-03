@@ -1,9 +1,12 @@
 # M0 report — repository inspection, decisions and milestone plan
 
-Status: **M0 in progress, no application code written.** This report supersedes the earlier
-chat-only M0 summary (same content, corrected table formatting, saved to the repository per
-`11-ai-build-playbook.md` M0 exit criteria: "Output architecture inventory, requirement
-traceability and `DECISIONS.md`").
+Status: **M0 complete. No application code has been written.** This report, `TRACEABILITY.md`,
+and `DECISIONS.md` together satisfy the M0 exit criteria in `11-ai-build-playbook.md`: "Output
+architecture inventory, requirement traceability and `DECISIONS.md`... no unknown project
+instructions; no unresolved decision blocking tenant/auth/data design; dev/test commands
+recorded." This version corrects a route-count error found in the prior pass (see §3 and
+`TRACEABILITY.md` section G) and completes the open-decisions register in `DECISIONS.md`. Nothing
+currently blocks starting M1 — see §6.
 
 ## 0. Specification package checked
 
@@ -72,14 +75,31 @@ monitoring and documentation baseline from `04`, `05`, `12`.
   handles both modes through shared paths. Flagging for extra test attention at M2/M4.
 - **No blocking contradictions found** between `00` and the more specific contracts (`07`, `08`,
   `09`) — where they overlap, the later documents sharpen `00` rather than conflict with it.
+- **Route-count error found and corrected:** the first pass of `TRACEABILITY.md` stated "51
+  distinct API endpoints" in `08-data-api-contract.md`. Recounting by expanding every
+  comma-separated route group (e.g. `/registration/open`, `/lock`, `/reopen` is three routes, not
+  one) gives **62 distinct REST routes plus 1 real-time channel (63 API surfaces)**. Corrected in
+  `TRACEABILITY.md` section G, which now gives every route its own row with module, authorization,
+  data, and evidence.
+- **Product name and branding are unresolved**, not a contradiction but worth restating here:
+  "TwistMeet" is explicitly provisional (`00` title, package `README`). Recorded as OD02 in
+  `DECISIONS.md`'s open decisions register, with the operating rule that all user-visible
+  branding must stay in one configurable value until a name is chosen.
+- **Fourteen other decisions are genuinely unresolved** across product, technical, legal, brand
+  and operations categories — see `DECISIONS.md`'s open decisions register (OD01–OD14). None of
+  them block M1; their required-by milestones range from M1 (pick a migration tool, pick an email
+  provider for production) to M4 (scramble generator) to M6/public-beta (hosting target, legal
+  review, children's-use policy, incident owner, subprocessor list, pilot concurrency figure).
 
 ## 3. Requirement-to-screen/API/data/test traceability
 
 See `TRACEABILITY.md` for the complete, non-sampled map: every numbered V1 requirement and
 exclusion in `00`, every mode/default/role/lifecycle rule in `00` §3–§11, every screen in `07`,
-every endpoint in `08`, every conformance vector and property test in `09`, and every checklist
-item in `12`, each mapped to an implementation area and the test or release evidence that will
-verify it (or marked not-applicable with a reason).
+every one of the **62 REST routes + 1 real-time channel** in `08` (section G, corrected from an
+earlier miscount of 51 — see below), every conformance vector and property test in `09`, and
+every checklist item in `12`, each mapped to an implementation area, authorization/role, relevant
+data, and the test or release evidence that will verify it (or marked not-applicable with a
+reason).
 
 ## 4. `DECISIONS.md` review against the contract
 
@@ -99,8 +119,14 @@ Reviewed `DECISIONS.md` line by line against `00` and the supporting documents:
   milestone that needs them (M4, M6, later) rather than blocking now.
 - **No undocumented deviation was found.** `DECISIONS.md`'s "Deviations from documents" section
   correctly remains empty — nothing in the file departs from a specified behavior; it only
-  records defaults and a wording clarification. No change made to `DECISIONS.md`'s decisions
-  themselves in this review; only this confirmation is new.
+  records defaults and a wording clarification. No settled default or product requirement was
+  changed in this pass.
+- **Added, not changed:** this pass added a product-name/branding note and a 14-item open
+  decisions register (OD01–OD14) to `DECISIONS.md`, covering every genuinely unresolved product,
+  technical, legal, brand, and operations decision found across the full document package. These
+  are additions, not replacements of prior content; the stack decision and the settled defaults
+  (puzzle, mode, scramble policy, precision, tie-break, correction cap, visibility, timer
+  inspection, advancement ties) are unchanged.
 
 ## 5. Milestone plan (per `11-ai-build-playbook.md`)
 
@@ -110,7 +136,7 @@ tooling and CI configuration only):
 
 | Milestone | Scope | Checks run at exit |
 |---|---|---|
-| **M0** (this session) | Inventory, full traceability map, `DECISIONS.md` review | No unknown project instructions; no unresolved blocking decision; package fully read and confirmed |
+| **M0** — complete | Inventory, full traceability map (62 routes + 1 realtime channel, corrected), `DECISIONS.md` review, open decisions register (OD01–OD14), branding note | No unknown project instructions; no unresolved decision blocks M1; package fully read and confirmed; route count verified against `08` |
 | **M1** Product foundation + project setup | `.gitignore`; pinned toolchain and dependency versions for API (Spring Boot/Java) and web (Next.js/TypeScript); Docker Compose for local Postgres; local start instructions (`README`/`CONTRIBUTING`); CI pipeline running format/lint, test and build for both API and web; org/staff auth with MFA hooks; tenant-isolated schema/migrations; event creation + guest join/QR/short-code; shared design system scaffold; seeded demo event | CI green on a trivial change; cross-tenant authorization tests pass; owner can create org/event; guest joins without account; dev/test commands recorded in `README` |
 | **M2** Competition engine | Immutable ruleset snapshot; round/attempt state machines; scoring module covering every vector in `09`; roster management; judge entry + append-only revisions | All `09` conformance + property tests pass; no direct competitor edit path exists; correction path preserves source history |
 | **M3** Organizer/competitor UI | Event wizard, roster, control room, judge entry, waiting room, results, error/empty/offline states | End-to-end create→publish flow works at 360px and desktop; keyboard and screen-reader critical paths checked |
@@ -137,12 +163,25 @@ tooling and CI configuration only):
 
 ## 6. Blockers needing your decision
 
-None block the start of M1. Two items need input before their respective milestone, not now:
-scramble generator/library choice (before M4), and target hosting/staging environment and domain
-(before M6 staging deployment).
+**Nothing blocks starting M1.** The full open decisions register is in `DECISIONS.md`
+(OD01–OD14); summarized by urgency:
+
+- **Needed during M1, but with a safe default available so M1 can proceed:** database migration
+  tool (OD05 — default Flyway, needs confirmation) and outgoing email provider for production use
+  (OD04 — local dev can use a mail catcher in the meantime).
+- **Needed before M4:** scramble generator/library selection and review (OD01) — no safe default
+  exists; must be an explicit reviewed choice, not invented.
+- **Needed before M6:** hosting/domain target (OD03), privacy/legal reviewer and launch
+  jurisdictions (OD06), children's-use policy if minors may participate (OD07), expected pilot
+  concurrency figure for load testing (OD13).
+- **Needed before public beta, not before:** incident owner/support contact/status page (OD11),
+  subprocessor list (OD12), pricing model (OD10), translation languages (OD09).
+- **No fixed deadline, resolve whenever convenient:** final product name/domain (OD02 — branding
+  stays configurable and neutral until then), display-name content-filter specifics (OD08 — a
+  conservative default is already assumed), object storage provider (OD14 — deferred by design).
 
 ## 7. Recommendation
 
-Still recommending **M1 — Product foundation + project setup** as the first implementation
-milestone, now including the greenfield scaffolding above. Waiting for review before writing any
-application code.
+M0 is complete. Recommending **M1 — Product foundation + project setup** as the first
+implementation milestone, including the greenfield scaffolding detailed in §5 above. Waiting for
+review before writing any application code.

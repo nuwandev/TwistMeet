@@ -219,6 +219,88 @@ via the matching `12` checklist items, since the two checklists overlap).
 | DR01–DR07 | Provision infra; set env vars/validate no secrets in artifacts; backup before migration + smoke test; deploy compatible versions + monitor; rollback procedure; scramble-exposure incident procedure; event-outage procedure | **NA until M6 staging target is chosen** — these are deployment-process steps, not features; will be exercised and documented at M6, not before |
 | LS01 | Product owner, technical owner, privacy/legal reviewer, security reviewer, pilot organizer sign-off before public production deployment | **NA at this stage** — out of scope for this engagement until explicitly authorized, per `00` §11 "A coding agent must not claim public launch merely because `npm build` or a local demo works" |
 
+## G. `08-data-api-contract.md` — full API route map (route-count correction)
+
+**Route-count correction:** the earlier version of this document and the chat-only M0 summary it
+was based on stated "51 distinct API endpoints." Recounting directly against
+`08-data-api-contract.md` by expanding every comma-separated route group into its own route
+(e.g. "`POST /events/{eventId}/registration/open`, `/lock`, `/reopen`" is 3 routes, not 1) gives
+**62 distinct REST-style routes**, plus **1 real-time subscription channel** described in the
+"Real-time updates" section (not a REST route, but a distinct API surface `08` specifies) — **63
+API surfaces in total**. The table below gives every one of the 62 REST routes its own row, with
+the real-time channel as a 63rd row at the end. This replaces the earlier undercount.
+
+| # | Method & route | Owning module | Authorization / role | Relevant data | Acceptance test / release evidence |
+|---|---|---|---|---|---|
+| 1 | `POST /auth/register` | Auth | Public (becomes org owner on success) | `User` | Registration test; email verification required before live event (SP04) |
+| 2 | `POST /auth/login` | Auth | Public (credentials) | `User` | Generic-error/rate-limit test (SP04) |
+| 3 | `POST /auth/logout` | Auth | Authenticated staff | `User` session | Session-revocation test |
+| 4 | `POST /auth/password/forgot` | Auth | Public (email) | `User` | Enumeration-resistant generic-response test |
+| 5 | `POST /auth/password/reset` | Auth | Possession of reset token | `User` | Reset-flow test |
+| 6 | `POST /auth/mfa/totp/enroll` | Auth | Authenticated staff | `User` | MFA enrollment test |
+| 7 | `POST /auth/mfa/totp/verify` | Auth | Authenticated staff | `User` | MFA verification test |
+| 8 | `GET /me` | Auth/Org | Authenticated staff (self) | `User` | Self-fetch test |
+| 9 | `GET /organizations` | Org | Authenticated staff, scoped to membership | `Organization`, `OrganizationMembership` | List-scoped-to-membership test (R58 tenant isolation) |
+| 10 | `POST /organizations` | Org | Authenticated staff | `Organization` | Creation test; creator becomes Owner (R28 analogue at org level) |
+| 11 | `GET /organizations/{id}/members` | Org | Org member, role-gated detail | `OrganizationMembership` | Role-matrix test (SP02) |
+| 12 | `POST /organizations/{id}/members/invitations` | Org | Owner/Organizer | `OrganizationMembership`, `RoleGrant` | Invite-flow test; least-privilege-by-default test |
+| 13 | `PATCH /organizations/{id}/members/{userId}` | Org | Owner | `RoleGrant` | Reauthentication-on-role-change test (S15) |
+| 14 | `POST /organizations/{orgId}/events` | Event | Organizer/Owner, org-scoped | `Event` | Creation test; cross-tenant isolation test (R58) |
+| 15 | `GET /organizations/{orgId}/events` | Event | Staff, org-scoped | `Event` | List-scoped-to-org test |
+| 16 | `GET /events/{eventId}` | Event | Role-filtered (staff scope, guest, or public per visibility) | `Event` | Role-filtered-detail test; never-contains-scramble-secrets test (R46) |
+| 17 | `PATCH /events/{eventId}` | Event | Organizer | `Event` | Draft-only-mutable test; immutable-after-registration-without-versioned-flow test |
+| 18 | `POST /events/{eventId}/registration/open` | Event | Organizer | `Event` (state) | Lifecycle transition test (R30) |
+| 19 | `POST /events/{eventId}/registration/lock` | Event | Organizer | `Event` (state) | Lifecycle transition test |
+| 20 | `POST /events/{eventId}/registration/reopen` | Event | Organizer | `Event` (state), `AuditEvent` | Audited-reopen test (R31) |
+| 21 | `POST /events/{eventId}/join-codes/rotate` | Event | Organizer | `Event` (join code hash) | Rotation-invalidates-old-code test (PA02) |
+| 22 | `POST /join/{joinCode}` | Registration | Public, valid join code | `EventEntrant`, guest credential | Join-code rate-limit/validity test (PA02, SP03); never returns roster test |
+| 23 | `GET /guest/events/{eventId}/me` | Registration | Guest (own credential) | `EventEntrant` | Own-entrant-only field test |
+| 24 | `PATCH /guest/events/{eventId}/me` | Registration | Guest (own credential), display name only pre-start | `EventEntrant` | Self-edit-scope test |
+| 25 | `POST /events/{eventId}/entrants` | Roster | Organizer (staff add) | `EventEntrant` | Manual-add test (S05) |
+| 26 | `PATCH /events/{eventId}/entrants/{entrantId}` | Roster | Organizer | `EventEntrant` | Edit test; duplicate-name disambiguation test |
+| 27 | `POST /events/{eventId}/entrants/{entrantId}/check-in` | Roster | Organizer/Judge | `EventEntrant` (checkInState) | Check-in state test |
+| 28 | `POST /events/{eventId}/entrants/{entrantId}/withdraw` | Roster | Organizer | `EventEntrant` (status) | Withdraw-preserves-audit test (R04/PA04) |
+| 29 | `DELETE /events/{eventId}/entrants/{entrantId}` | Roster | Organizer, only before attempt assignment | `EventEntrant`, `AuditEvent` | Delete-blocked-after-assignment test; tombstone/audit test |
+| 30 | `POST /events/{eventId}/rounds` | Round | Organizer, draft event only | `Round` | Draft-only-creation test |
+| 31 | `PATCH /rounds/{roundId}` | Round | Organizer, before live | `Round` | Pre-live-edit test; blocked-after-live test |
+| 32 | `POST /rounds/{roundId}/prepare` | Round | Organizer | `Round`, `Attempt` slots, `ScrambleAssignment` | Freeze-entrants/ruleset test (R33, R41) |
+| 33 | `POST /rounds/{roundId}/ready` | Round | Organizer | `Round` (state) | Transition test |
+| 34 | `POST /rounds/{roundId}/start` | Round | Organizer | `Round` (state) | Transition test |
+| 35 | `POST /rounds/{roundId}/pause` | Round | Organizer | `Round` (state) | Transition test |
+| 36 | `POST /rounds/{roundId}/review` | Round | Organizer (or system-triggered on full resolution) | `Round` (state) | REVIEW-after-all-resolved test (R34) |
+| 37 | `POST /rounds/{roundId}/close` | Round | Organizer | `Round` (state) | Close-blocked-by-pending test (PA09) |
+| 38 | `GET /rounds/{roundId}/control-state` | Control room | Staff, role-filtered | `Round`, `Attempt`, `EventEntrant` snapshot | Role-filtered-snapshot test (S08) |
+| 39 | `GET /attempts/{attemptId}` | Attempt | Role-filtered (judge, organizer, or own entrant) | `Attempt` | Authorized-fields-only test |
+| 40 | `POST /attempts/{attemptId}/start` | Attempt | Competitor, phone mode only, own credential, current attempt | `Attempt` (state) | Mode-gated-control test (R38) |
+| 41 | `POST /attempts/{attemptId}/stop` | Attempt | Competitor, phone mode only, own credential | `Attempt` (state) | Mode-gated-control test |
+| 42 | `POST /attempts/{attemptId}/submit` | Attempt | Competitor, phone mode | `Attempt` (rawTimeMs, penalty, resultSource=self-timed) | Idempotency test (DUPLICATE_ATTEMPT); penalty-validation test |
+| 43 | `PUT /attempts/{attemptId}/judge-result` | Attempt | Judge | `Attempt`, `ResultRevision` | Judge-only test; revision-recorded test (R09) |
+| 44 | `POST /rounds/{roundId}/scramble-batches` | Scramble | Organizer | `ScrambleBatch`, `ScrambleSecret` | Batch-generation test; counts/IDs-only-response test (R46) |
+| 45 | `GET /scramble-assignments/{id}/official-view` | Scramble | Assigned scrambler/judge only | `ScrambleAssignment` | Role-gated-view test (R41) |
+| 46 | `POST /scramble-assignments/{id}/reveal` | Scramble | Assigned official | `ScrambleAssignment` (revealedAt), `AuditEvent` | Audit-on-reveal test; idempotent-no-bulk-reveal test |
+| 47 | `POST /scramble-assignments/{id}/mark-applied` | Scramble | Assigned scrambler | `ScrambleAssignment` (actor/time) | Applied-audit test (S07) |
+| 48 | `POST /scramble-assignments/{id}/mark-checked` | Scramble | Assigned scrambler/judge, optional independent checker | `ScrambleAssignment` (actor/time) | Checked-audit test |
+| 49 | `POST /scramble-assignments/{id}/spoil` | Scramble | Organizer/Judge | `ScrambleAssignment`, replacement assignment from extras | Spoil-consumes-sequence test; replacement-audit test (R45) |
+| 50 | `GET /guest/.../current-scramble` *(path abbreviated with ellipsis in `08`; implementation must give it a concrete path such as `/guest/events/{eventId}/attempts/{attemptId}/current-scramble`)* | Scramble | Self-scramble-mode competitor, own credential, only when attempt unlocked | `ScrambleAssignment` | Future-sequence-hidden test (R42) |
+| 51 | `POST /attempts/{attemptId}/correction-requests` | Correction | Competitor, own attempt | `CorrectionRequest` | Category/note validation test (P06) |
+| 52 | `GET /events/{eventId}/corrections` | Correction | Organizer/Judge | `CorrectionRequest` | Authorized-list test (S10) |
+| 53 | `POST /corrections/{id}/decision` | Correction | Organizer | `CorrectionRequest`, `ResultRevision` | Decision-preserves-original-value test (R40) |
+| 54 | `GET /rounds/{roundId}/standings` | Results | Authorized staff (full detail); published-only for others | Computed standings (from `Attempt`) | Provisional-flag test (PA08) |
+| 55 | `POST /rounds/{roundId}/advancement/preview` | Advancement | Organizer | `Round`, `EventEntrant` | Preview-math-visible test (V11, V12) |
+| 56 | `POST /rounds/{roundId}/advancement/commit` | Advancement | Organizer | `Round`, next-round `EventEntrant` slots, `AuditEvent` | Idempotency/version-conflict test (R36) |
+| 57 | `POST /events/{eventId}/publish` | Results/Display | Organizer | `Event` (publishedAt), `PublicSnapshot` | Publish test (S12) |
+| 58 | `POST /events/{eventId}/unpublish` | Results/Display | Organizer | `PublicSnapshot` | Unpublish test |
+| 59 | `GET /public/events/{publicSlug}` | Public display | Public, unauthenticated | `PublicSnapshot` | Published-fields-only test (PA10) |
+| 60 | `GET /public/events/{publicSlug}/standings` | Public display | Public, unauthenticated | `PublicSnapshot` | Published-only-data test |
+| 61 | `GET /organizations/{orgId}/events/{eventId}/export.csv` | Export | Organizer/Owner | `Event`, `Attempt`, `EventEntrant` (export view) | CSV-column/UTF-8 test (S14) |
+| 62 | `GET /events/{eventId}/audit` | Audit | Owner/Organizer | `AuditEvent` | Restricted-access test |
+| 63 | Real-time event-room subscription (SSE or WebSocket) | Real-time | Authenticated staff or guest, event-scoped subscription; public channel is a separate, published-fields-only stream | Minimal state-delta payloads (`{eventId, eventVersion, eventType, resourceId, changedFields, occurredAt}`) | No-scramble-in-payload test; public-channel-published-fields-only test; rate-limit/unsubscribe-on-scope-change test (R46) |
+
+Cross-cutting API conventions that apply to every route above (idempotency keys on writes,
+optimistic concurrency via `expectedVersion`/`If-Match`, stable error codes, cursor pagination on
+lists, 404-not-403 on inaccessible objects) are verified once per convention rather than once per
+route, via the `08` "API security tests" paragraph and R39/R58 above.
+
 ---
 
 ## Coverage statement
@@ -229,9 +311,10 @@ This document maps:
   R14–R62),
 - all **19** scoring conformance vectors and property tests in `09`,
 - all **22** screens in `07`,
-- all **51** distinct API endpoints and the cross-cutting API conventions in `08` (endpoint-level
-  detail folds into the module rows above; `08`'s own "API security tests" paragraph is the test
-  evidence for the data/API contract as a whole and is referenced throughout section A/C),
+- all **62** distinct REST routes plus the 1 real-time subscription channel (**63 API surfaces**
+  in total — see section G for the corrected count and the full per-route table; the figure of
+  "51" in the first draft of this document was an undercount from not expanding every
+  comma-separated route group, and has been corrected here),
 - all **28** release-acceptance checklist items plus the event-day/deployment/sign-off process
   items in `12`.
 
@@ -240,3 +323,17 @@ unmapped. Narrative-only documents (`01`, `02`, `03`, `04`, `05`, `06`, `10`, `1
 resolve ambiguity and inform the Area/Evidence columns above but do not introduce separate
 requirement IDs, since `00` is controlling and the behavioral contracts (`07`–`09`) are where
 narrative intent becomes testable.
+
+## Document consistency checks performed
+
+- Recounted every route in `08-data-api-contract.md` by expanding each comma-separated group into
+  individual routes; corrected the prior "51" figure to the verified **62 REST routes + 1
+  real-time channel**. See section G.
+- Cross-checked that every route added in section G has a corresponding row or coverage note in
+  section C (role/behavior rules) so the same route isn't silently treated differently in two
+  places.
+- Confirmed section D's 19 scoring items, section E's 22 screens, and section F's 28 release-gate
+  items against a fresh line-by-line re-read of `09`, `07`, and `12` — counts unchanged from the
+  previous version, no corrections needed there.
+- Confirmed no product requirement, default, or test expectation was altered while fixing the
+  route table — only the API section was expanded and the count corrected.
