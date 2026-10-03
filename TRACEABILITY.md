@@ -230,76 +230,80 @@ was based on stated "51 distinct API endpoints." Recounting directly against
 API surfaces in total**. The table below gives every one of the 62 REST routes its own row, with
 the real-time channel as a 63rd row at the end. This replaces the earlier undercount.
 
-| # | Method & route | Owning module | Authorization / role | Relevant data | Acceptance test / release evidence |
-|---|---|---|---|---|---|
-| 1 | `POST /auth/register` | Auth | Public (becomes org owner on success) | `User` | Registration test; email verification required before live event (SP04) |
-| 2 | `POST /auth/login` | Auth | Public (credentials) | `User` | Generic-error/rate-limit test (SP04) |
-| 3 | `POST /auth/logout` | Auth | Authenticated staff | `User` session | Session-revocation test |
-| 4 | `POST /auth/password/forgot` | Auth | Public (email) | `User` | Enumeration-resistant generic-response test |
-| 5 | `POST /auth/password/reset` | Auth | Possession of reset token | `User` | Reset-flow test |
-| 6 | `POST /auth/mfa/totp/enroll` | Auth | Authenticated staff | `User` | MFA enrollment test |
-| 7 | `POST /auth/mfa/totp/verify` | Auth | Authenticated staff | `User` | MFA verification test |
-| 8 | `GET /me` | Auth/Org | Authenticated staff (self) | `User` | Self-fetch test |
-| 9 | `GET /organizations` | Org | Authenticated staff, scoped to membership | `Organization`, `OrganizationMembership` | List-scoped-to-membership test (R58 tenant isolation) |
-| 10 | `POST /organizations` | Org | Authenticated staff | `Organization` | Creation test; creator becomes Owner (R28 analogue at org level) |
-| 11 | `GET /organizations/{id}/members` | Org | Org member, role-gated detail | `OrganizationMembership` | Role-matrix test (SP02) |
-| 12 | `POST /organizations/{id}/members/invitations` | Org | Owner/Organizer | `OrganizationMembership`, `RoleGrant` | Invite-flow test; least-privilege-by-default test |
-| 13 | `PATCH /organizations/{id}/members/{userId}` | Org | Owner | `RoleGrant` | Reauthentication-on-role-change test (S15) |
-| 14 | `POST /organizations/{orgId}/events` | Event | Organizer/Owner, org-scoped | `Event` | Creation test; cross-tenant isolation test (R58) |
-| 15 | `GET /organizations/{orgId}/events` | Event | Staff, org-scoped | `Event` | List-scoped-to-org test |
-| 16 | `GET /events/{eventId}` | Event | Role-filtered (staff scope, guest, or public per visibility) | `Event` | Role-filtered-detail test; never-contains-scramble-secrets test (R46) |
-| 17 | `PATCH /events/{eventId}` | Event | Organizer | `Event` | Draft-only-mutable test; immutable-after-registration-without-versioned-flow test |
-| 18 | `POST /events/{eventId}/registration/open` | Event | Organizer | `Event` (state) | Lifecycle transition test (R30) |
-| 19 | `POST /events/{eventId}/registration/lock` | Event | Organizer | `Event` (state) | Lifecycle transition test |
-| 20 | `POST /events/{eventId}/registration/reopen` | Event | Organizer | `Event` (state), `AuditEvent` | Audited-reopen test (R31) |
-| 21 | `POST /events/{eventId}/join-codes/rotate` | Event | Organizer | `Event` (join code hash) | Rotation-invalidates-old-code test (PA02) |
-| 22 | `POST /join/{joinCode}` | Registration | Public, valid join code | `EventEntrant`, guest credential | Join-code rate-limit/validity test (PA02, SP03); never returns roster test |
-| 23 | `GET /guest/events/{eventId}/me` | Registration | Guest (own credential) | `EventEntrant` | Own-entrant-only field test |
-| 24 | `PATCH /guest/events/{eventId}/me` | Registration | Guest (own credential), display name only pre-start | `EventEntrant` | Self-edit-scope test |
-| 25 | `POST /events/{eventId}/entrants` | Roster | Organizer (staff add) | `EventEntrant` | Manual-add test (S05) |
-| 26 | `PATCH /events/{eventId}/entrants/{entrantId}` | Roster | Organizer | `EventEntrant` | Edit test; duplicate-name disambiguation test |
-| 27 | `POST /events/{eventId}/entrants/{entrantId}/check-in` | Roster | Organizer/Judge | `EventEntrant` (checkInState) | Check-in state test |
-| 28 | `POST /events/{eventId}/entrants/{entrantId}/withdraw` | Roster | Organizer | `EventEntrant` (status) | Withdraw-preserves-audit test (R04/PA04) |
-| 29 | `DELETE /events/{eventId}/entrants/{entrantId}` | Roster | Organizer, only before attempt assignment | `EventEntrant`, `AuditEvent` | Delete-blocked-after-assignment test; tombstone/audit test |
-| 30 | `POST /events/{eventId}/rounds` | Round | Organizer, draft event only | `Round` | Draft-only-creation test |
-| 31 | `PATCH /rounds/{roundId}` | Round | Organizer, before live | `Round` | Pre-live-edit test; blocked-after-live test |
-| 32 | `POST /rounds/{roundId}/prepare` | Round | Organizer | `Round`, `Attempt` slots, `ScrambleAssignment` | Freeze-entrants/ruleset test (R33, R41) |
-| 33 | `POST /rounds/{roundId}/ready` | Round | Organizer | `Round` (state) | Transition test |
-| 34 | `POST /rounds/{roundId}/start` | Round | Organizer | `Round` (state) | Transition test |
-| 35 | `POST /rounds/{roundId}/pause` | Round | Organizer | `Round` (state) | Transition test |
-| 36 | `POST /rounds/{roundId}/review` | Round | Organizer (or system-triggered on full resolution) | `Round` (state) | REVIEW-after-all-resolved test (R34) |
-| 37 | `POST /rounds/{roundId}/close` | Round | Organizer | `Round` (state) | Close-blocked-by-pending test (PA09) |
-| 38 | `GET /rounds/{roundId}/control-state` | Control room | Staff, role-filtered | `Round`, `Attempt`, `EventEntrant` snapshot | Role-filtered-snapshot test (S08) |
-| 39 | `GET /attempts/{attemptId}` | Attempt | Role-filtered (judge, organizer, or own entrant) | `Attempt` | Authorized-fields-only test |
-| 40 | `POST /attempts/{attemptId}/start` | Attempt | Competitor, phone mode only, own credential, current attempt | `Attempt` (state) | Mode-gated-control test (R38) |
-| 41 | `POST /attempts/{attemptId}/stop` | Attempt | Competitor, phone mode only, own credential | `Attempt` (state) | Mode-gated-control test |
-| 42 | `POST /attempts/{attemptId}/submit` | Attempt | Competitor, phone mode | `Attempt` (rawTimeMs, penalty, resultSource=self-timed) | Idempotency test (DUPLICATE_ATTEMPT); penalty-validation test |
-| 43 | `PUT /attempts/{attemptId}/judge-result` | Attempt | Judge | `Attempt`, `ResultRevision` | Judge-only test; revision-recorded test (R09) |
-| 44 | `POST /rounds/{roundId}/scramble-batches` | Scramble | Organizer | `ScrambleBatch`, `ScrambleSecret` | Batch-generation test; counts/IDs-only-response test (R46) |
-| 45 | `GET /scramble-assignments/{id}/official-view` | Scramble | Assigned scrambler/judge only | `ScrambleAssignment` | Role-gated-view test (R41) |
-| 46 | `POST /scramble-assignments/{id}/reveal` | Scramble | Assigned official | `ScrambleAssignment` (revealedAt), `AuditEvent` | Audit-on-reveal test; idempotent-no-bulk-reveal test |
-| 47 | `POST /scramble-assignments/{id}/mark-applied` | Scramble | Assigned scrambler | `ScrambleAssignment` (actor/time) | Applied-audit test (S07) |
-| 48 | `POST /scramble-assignments/{id}/mark-checked` | Scramble | Assigned scrambler/judge, optional independent checker | `ScrambleAssignment` (actor/time) | Checked-audit test |
-| 49 | `POST /scramble-assignments/{id}/spoil` | Scramble | Organizer/Judge | `ScrambleAssignment`, replacement assignment from extras | Spoil-consumes-sequence test; replacement-audit test (R45) |
-| 50 | `GET /guest/.../current-scramble` *(path abbreviated with ellipsis in `08`; implementation must give it a concrete path such as `/guest/events/{eventId}/attempts/{attemptId}/current-scramble`)* | Scramble | Self-scramble-mode competitor, own credential, only when attempt unlocked | `ScrambleAssignment` | Future-sequence-hidden test (R42) |
-| 51 | `POST /attempts/{attemptId}/correction-requests` | Correction | Competitor, own attempt | `CorrectionRequest` | Category/note validation test (P06) |
-| 52 | `GET /events/{eventId}/corrections` | Correction | Organizer/Judge | `CorrectionRequest` | Authorized-list test (S10) |
-| 53 | `POST /corrections/{id}/decision` | Correction | Organizer | `CorrectionRequest`, `ResultRevision` | Decision-preserves-original-value test (R40) |
-| 54 | `GET /rounds/{roundId}/standings` | Results | Authorized staff (full detail); published-only for others | Computed standings (from `Attempt`) | Provisional-flag test (PA08) |
-| 55 | `POST /rounds/{roundId}/advancement/preview` | Advancement | Organizer | `Round`, `EventEntrant` | Preview-math-visible test (V11, V12) |
-| 56 | `POST /rounds/{roundId}/advancement/commit` | Advancement | Organizer | `Round`, next-round `EventEntrant` slots, `AuditEvent` | Idempotency/version-conflict test (R36) |
-| 57 | `POST /events/{eventId}/publish` | Results/Display | Organizer | `Event` (publishedAt), `PublicSnapshot` | Publish test (S12) |
-| 58 | `POST /events/{eventId}/unpublish` | Results/Display | Organizer | `PublicSnapshot` | Unpublish test |
-| 59 | `GET /public/events/{publicSlug}` | Public display | Public, unauthenticated | `PublicSnapshot` | Published-fields-only test (PA10) |
-| 60 | `GET /public/events/{publicSlug}/standings` | Public display | Public, unauthenticated | `PublicSnapshot` | Published-only-data test |
-| 61 | `GET /organizations/{orgId}/events/{eventId}/export.csv` | Export | Organizer/Owner | `Event`, `Attempt`, `EventEntrant` (export view) | CSV-column/UTF-8 test (S14) |
-| 62 | `GET /events/{eventId}/audit` | Audit | Owner/Organizer | `AuditEvent` | Restricted-access test |
-| 63 | Real-time event-room subscription (SSE or WebSocket) | Real-time | Authenticated staff or guest, event-scoped subscription; public channel is a separate, published-fields-only stream | Minimal state-delta payloads (`{eventId, eventVersion, eventType, resourceId, changedFields, occurredAt}`) | No-scramble-in-payload test; public-channel-published-fields-only test; rate-limit/unsubscribe-on-scope-change test (R46) |
+| # | Method & route | Owning module | Authorization / role | Relevant data | Acceptance test / release evidence | M1 status |
+|---|---|---|---|---|---|---|
+| 1 | `POST /auth/register` | Auth | Public (becomes org owner on success) | `User` | Registration test; email verification required before live event (SP04) | **Built** — `AuthFlowTest` |
+| 2 | `POST /auth/login` | Auth | Public (credentials) | `User` | Generic-error/rate-limit test (SP04) | **Built** — `AuthFlowTest` |
+| 3 | `POST /auth/logout` | Auth | Authenticated staff | `User` session | Session-revocation test | **Built** — `AuthFlowTest` |
+| 4 | `POST /auth/password/forgot` | Auth | Public (email) | `User` | Enumeration-resistant generic-response test | Not built (M1 scope is register/login/logout only; password reset deferred) |
+| 5 | `POST /auth/password/reset` | Auth | Possession of reset token | `User` | Reset-flow test | Not built (see row 4) |
+| 6 | `POST /auth/mfa/totp/enroll` | Auth | Authenticated staff | `User` | MFA enrollment test | Not built — MFA is "required before public beta" (`00` §10), tracked for M6 |
+| 7 | `POST /auth/mfa/totp/verify` | Auth | Authenticated staff | `User` | MFA verification test | Not built — see row 6 |
+| 8 | `GET /me` | Auth/Org | Authenticated staff (self) | `User` | Self-fetch test | **Built** — `AuthFlowTest`, `CrossTenantAccessTest` |
+| 9 | `GET /organizations` | Org | Authenticated staff, scoped to membership | `Organization`, `OrganizationMembership` | List-scoped-to-membership test (R58 tenant isolation) | **Built** — `CrossTenantAccessTest.listingOrganizationsOnlyReturnsOwnMemberships` |
+| 10 | `POST /organizations` | Org | Authenticated staff | `Organization` | Creation test; creator becomes Owner (R28 analogue at org level) | **Built** |
+| 11 | `GET /organizations/{id}/members` | Org | Org member, role-gated detail | `OrganizationMembership` | Role-matrix test (SP02) | Not built (M2+; M1 has no staff-invite UI yet) |
+| 12 | `POST /organizations/{id}/members/invitations` | Org | Owner/Organizer | `OrganizationMembership`, `RoleGrant` | Invite-flow test; least-privilege-by-default test | Not built (see row 11) |
+| 13 | `PATCH /organizations/{id}/members/{userId}` | Org | Owner | `RoleGrant` | Reauthentication-on-role-change test (S15) | Not built (see row 11) |
+| 14 | `POST /organizations/{orgId}/events` | Event | Organizer/Owner, org-scoped | `Event` | Creation test; cross-tenant isolation test (R58) | **Built** — `CrossTenantAccessTest`, `EventLifecycleAndJoinTest` |
+| 15 | `GET /organizations/{orgId}/events` | Event | Staff, org-scoped | `Event` | List-scoped-to-org test | **Built** — `CrossTenantAccessTest.memberOfOrgBCannotReadOrModifyOrgAEvent` |
+| 16 | `GET /events/{eventId}` | Event | Role-filtered (staff scope, guest, or public per visibility) | `Event` | Role-filtered-detail test; never-contains-scramble-secrets test (R46) | **Built for staff only** (guest/public detail view not built in M1 — guests get event name via join response instead; simplification, see DECISIONS.md) |
+| 17 | `PATCH /events/{eventId}` | Event | Organizer | `Event` | Draft-only-mutable test; immutable-after-registration-without-versioned-flow test | **Built** (simplified to DRAFT-only editing, see DECISIONS.md "Edit lock simplification") |
+| 18 | `POST /events/{eventId}/registration/open` | Event | Organizer | `Event` (state) | Lifecycle transition test (R30) | **Built** — `EventLifecycleAndJoinTest` |
+| 19 | `POST /events/{eventId}/registration/lock` | Event | Organizer | `Event` (state) | Lifecycle transition test | **Built** — `EventLifecycleAndJoinTest.lockedRegistrationRejectsNewJoinsButExistingGuestsStillWork` |
+| 20 | `POST /events/{eventId}/registration/reopen` | Event | Organizer | `Event` (state), `AuditEvent` | Audited-reopen test (R31) | **Built** (endpoint implemented; no dedicated test yet — gap, see report) |
+| 21 | `POST /events/{eventId}/join-codes/rotate` | Event | Organizer | `Event` (join code hash) | Rotation-invalidates-old-code test (PA02) | **Built** — `EventLifecycleAndJoinTest.joinCodeRotationInvalidatesOldCode` |
+| 22 | `POST /join/{joinCode}` | Registration | Public, valid join code | `EventEntrant`, guest credential | Join-code rate-limit/validity test (PA02, SP03); never returns roster test | **Built** — `EventLifecycleAndJoinTest` (rate limiting implemented, not covered by an automated test — gap) |
+| 23 | `GET /guest/events/{eventId}/me` | Registration | Guest (own credential) | `EventEntrant` | Own-entrant-only field test | **Built** — `EventLifecycleAndJoinTest.guestCredentialDoesNotCrossEventBoundary` |
+| 24 | `PATCH /guest/events/{eventId}/me` | Registration | Guest (own credential), display name only pre-start | `EventEntrant` | Self-edit-scope test | Not built (M1 scope is join-only; guest self-edit deferred to M2 roster management) |
+| 25 | `POST /events/{eventId}/entrants` | Roster | Organizer (staff add) | `EventEntrant` | Manual-add test (S05) | Not built (M2 "roster management" per the milestone table; M1 only has guest self-join) |
+| 26 | `PATCH /events/{eventId}/entrants/{entrantId}` | Roster | Organizer | `EventEntrant` | Edit test; duplicate-name disambiguation test | Not built (see row 25) |
+| 27 | `POST /events/{eventId}/entrants/{entrantId}/check-in` | Roster | Organizer/Judge | `EventEntrant` (checkInState) | Check-in state test | Not built (see row 25) |
+| 28 | `POST /events/{eventId}/entrants/{entrantId}/withdraw` | Roster | Organizer | `EventEntrant` (status) | Withdraw-preserves-audit test (R04/PA04) | Not built (see row 25) |
+| 29 | `DELETE /events/{eventId}/entrants/{entrantId}` | Roster | Organizer, only before attempt assignment | `EventEntrant`, `AuditEvent` | Delete-blocked-after-assignment test; tombstone/audit test | Not built (see row 25) |
+| 30 | `POST /events/{eventId}/rounds` | Round | Organizer, draft event only | `Round` | Draft-only-creation test | Not built — M2 scope |
+| 31 | `PATCH /rounds/{roundId}` | Round | Organizer, before live | `Round` | Pre-live-edit test; blocked-after-live test | Not built — M2 scope |
+| 32 | `POST /rounds/{roundId}/prepare` | Round | Organizer | `Round`, `Attempt` slots, `ScrambleAssignment` | Freeze-entrants/ruleset test (R33, R41) | Not built — M2 scope |
+| 33 | `POST /rounds/{roundId}/ready` | Round | Organizer | `Round` (state) | Transition test | Not built — M2 scope |
+| 34 | `POST /rounds/{roundId}/start` | Round | Organizer | `Round` (state) | Transition test | Not built — M2 scope |
+| 35 | `POST /rounds/{roundId}/pause` | Round | Organizer | `Round` (state) | Transition test | Not built — M2 scope |
+| 36 | `POST /rounds/{roundId}/review` | Round | Organizer (or system-triggered on full resolution) | `Round` (state) | REVIEW-after-all-resolved test (R34) | Not built — M2 scope |
+| 37 | `POST /rounds/{roundId}/close` | Round | Organizer | `Round` (state) | Close-blocked-by-pending test (PA09) | Not built — M2 scope |
+| 38 | `GET /rounds/{roundId}/control-state` | Control room | Staff, role-filtered | `Round`, `Attempt`, `EventEntrant` snapshot | Role-filtered-snapshot test (S08) | Not built — M3 scope |
+| 39 | `GET /attempts/{attemptId}` | Attempt | Role-filtered (judge, organizer, or own entrant) | `Attempt` | Authorized-fields-only test | Not built — M2 scope |
+| 40 | `POST /attempts/{attemptId}/start` | Attempt | Competitor, phone mode only, own credential, current attempt | `Attempt` (state) | Mode-gated-control test (R38) | Not built — M2 scope |
+| 41 | `POST /attempts/{attemptId}/stop` | Attempt | Competitor, phone mode only, own credential | `Attempt` (state) | Mode-gated-control test | Not built — M2 scope |
+| 42 | `POST /attempts/{attemptId}/submit` | Attempt | Competitor, phone mode | `Attempt` (rawTimeMs, penalty, resultSource=self-timed) | Idempotency test (DUPLICATE_ATTEMPT); penalty-validation test | Not built — M2 scope |
+| 43 | `PUT /attempts/{attemptId}/judge-result` | Attempt | Judge | `Attempt`, `ResultRevision` | Judge-only test; revision-recorded test (R09) | Not built — M2 scope |
+| 44 | `POST /rounds/{roundId}/scramble-batches` | Scramble | Organizer | `ScrambleBatch`, `ScrambleSecret` | Batch-generation test; counts/IDs-only-response test (R46) | Not built — M4 scope |
+| 45 | `GET /scramble-assignments/{id}/official-view` | Scramble | Assigned scrambler/judge only | `ScrambleAssignment` | Role-gated-view test (R41) | Not built — M4 scope |
+| 46 | `POST /scramble-assignments/{id}/reveal` | Scramble | Assigned official | `ScrambleAssignment` (revealedAt), `AuditEvent` | Audit-on-reveal test; idempotent-no-bulk-reveal test | Not built — M4 scope |
+| 47 | `POST /scramble-assignments/{id}/mark-applied` | Scramble | Assigned scrambler | `ScrambleAssignment` (actor/time) | Applied-audit test (S07) | Not built — M4 scope |
+| 48 | `POST /scramble-assignments/{id}/mark-checked` | Scramble | Assigned scrambler/judge, optional independent checker | `ScrambleAssignment` (actor/time) | Checked-audit test | Not built — M4 scope |
+| 49 | `POST /scramble-assignments/{id}/spoil` | Scramble | Organizer/Judge | `ScrambleAssignment`, replacement assignment from extras | Spoil-consumes-sequence test; replacement-audit test (R45) | Not built — M4 scope |
+| 50 | `GET /guest/.../current-scramble` *(path abbreviated with ellipsis in `08`; implementation must give it a concrete path such as `/guest/events/{eventId}/attempts/{attemptId}/current-scramble`)* | Scramble | Self-scramble-mode competitor, own credential, only when attempt unlocked | `ScrambleAssignment` | Future-sequence-hidden test (R42) | **Deliberately unresolved** — not built, no concrete path chosen in M1 per explicit instruction; left for whoever builds M4 to decide alongside the rest of the scramble vault. See DECISIONS.md "M1 implementation decisions." |
+| 51 | `POST /attempts/{attemptId}/correction-requests` | Correction | Competitor, own attempt | `CorrectionRequest` | Category/note validation test (P06) | Not built — M2 scope |
+| 52 | `GET /events/{eventId}/corrections` | Correction | Organizer/Judge | `CorrectionRequest` | Authorized-list test (S10) | Not built — M2 scope |
+| 53 | `POST /corrections/{id}/decision` | Correction | Organizer | `CorrectionRequest`, `ResultRevision` | Decision-preserves-original-value test (R40) | Not built — M2 scope |
+| 54 | `GET /rounds/{roundId}/standings` | Results | Authorized staff (full detail); published-only for others | Computed standings (from `Attempt`) | Provisional-flag test (PA08) | Not built — M2/M5 scope |
+| 55 | `POST /rounds/{roundId}/advancement/preview` | Advancement | Organizer | `Round`, `EventEntrant` | Preview-math-visible test (V11, V12) | Not built — M5 scope |
+| 56 | `POST /rounds/{roundId}/advancement/commit` | Advancement | Organizer | `Round`, next-round `EventEntrant` slots, `AuditEvent` | Idempotency/version-conflict test (R36) | Not built — M5 scope |
+| 57 | `POST /events/{eventId}/publish` | Results/Display | Organizer | `Event` (publishedAt), `PublicSnapshot` | Publish test (S12) | Not built — M5 scope |
+| 58 | `POST /events/{eventId}/unpublish` | Results/Display | Organizer | `PublicSnapshot` | Unpublish test | Not built — M5 scope |
+| 59 | `GET /public/events/{publicSlug}` | Public display | Public, unauthenticated | `PublicSnapshot` | Published-fields-only test (PA10) | Not built — M5 scope |
+| 60 | `GET /public/events/{publicSlug}/standings` | Public display | Public, unauthenticated | `PublicSnapshot` | Published-only-data test | Not built — M5 scope |
+| 61 | `GET /organizations/{orgId}/events/{eventId}/export.csv` | Export | Organizer/Owner | `Event`, `Attempt`, `EventEntrant` (export view) | CSV-column/UTF-8 test (S14) | Not built — M5 scope |
+| 62 | `GET /events/{eventId}/audit` | Audit | Owner/Organizer | `AuditEvent` | Restricted-access test | Not built (audit events are recorded from M1 onward via `AuditService`; no read endpoint exposed yet) |
+| 63 | Real-time event-room subscription (SSE or WebSocket) | Real-time | Authenticated staff or guest, event-scoped subscription; public channel is a separate, published-fields-only stream | Minimal state-delta payloads (`{eventId, eventVersion, eventType, resourceId, changedFields, occurredAt}`) | No-scramble-in-payload test; public-channel-published-fields-only test; rate-limit/unsubscribe-on-scope-change test (R46) | Not built — M3 scope (Tournament Control needs this) |
+| 64 | `GET /events/{eventId}/entrants` *(minimal addition, not in `08`'s enumerated list)* | Roster | Organizer/staff, org membership required | `EventEntrant` | Role-authorization test (`RosterAuthorizationTest`); 404-for-non-member test | **Built** — `RosterAuthorizationTest`, `EventLifecycleAndJoinTest`. See `RosterController`'s class comment and DECISIONS.md. |
 
 Cross-cutting API conventions that apply to every route above (idempotency keys on writes,
 optimistic concurrency via `expectedVersion`/`If-Match`, stable error codes, cursor pagination on
 lists, 404-not-403 on inaccessible objects) are verified once per convention rather than once per
-route, via the `08` "API security tests" paragraph and R39/R58 above.
+route, via the `08` "API security tests" paragraph and R39/R58 above. **M1 status:** optimistic
+concurrency (`version` field) and 404-not-403 are built and tested; `Idempotency-Key` header
+handling and cursor pagination are not yet built (no M1 endpoint needs pagination; idempotency
+keys are deferred to M2 where duplicate attempt submission is a real risk).
 
 ---
 

@@ -1,12 +1,11 @@
 # M0 report — repository inspection, decisions and milestone plan
 
-Status: **M0 complete. No application code has been written.** This report, `TRACEABILITY.md`,
-and `DECISIONS.md` together satisfy the M0 exit criteria in `11-ai-build-playbook.md`: "Output
-architecture inventory, requirement traceability and `DECISIONS.md`... no unknown project
-instructions; no unresolved decision blocking tenant/auth/data design; dev/test commands
-recorded." This version corrects a route-count error found in the prior pass (see §3 and
-`TRACEABILITY.md` section G) and completes the open-decisions register in `DECISIONS.md`. Nothing
-currently blocks starting M1 — see §6.
+Status: **M0 complete; M1 (Product foundation + project setup) now also complete.** §0–§4 and the
+open-decisions register below are the original M0 deliverable and are unchanged except for one
+route-count correction. §5's milestone table reflects M1 as built, tested (12 JUnit integration
+tests plus a real-browser Playwright walkthrough), and documented in `TRACEABILITY.md`/
+`DECISIONS.md`. See the end of this file for the M1 completion summary: what works end to end,
+commands run, and remaining gaps going into M2.
 
 ## 0. Specification package checked
 
@@ -137,29 +136,27 @@ tooling and CI configuration only):
 | Milestone | Scope | Checks run at exit |
 |---|---|---|
 | **M0** — complete | Inventory, full traceability map (62 routes + 1 realtime channel, corrected), `DECISIONS.md` review, open decisions register (OD01–OD14), branding note | No unknown project instructions; no unresolved decision blocks M1; package fully read and confirmed; route count verified against `08` |
-| **M1** Product foundation + project setup | `.gitignore`; pinned toolchain and dependency versions for API (Spring Boot/Java) and web (Next.js/TypeScript); Docker Compose for local Postgres; local start instructions (`README`/`CONTRIBUTING`); CI pipeline running format/lint, test and build for both API and web; org/staff auth with MFA hooks; tenant-isolated schema/migrations; event creation + guest join/QR/short-code; shared design system scaffold; seeded demo event | CI green on a trivial change; cross-tenant authorization tests pass; owner can create org/event; guest joins without account; dev/test commands recorded in `README` |
+| **M1** — complete | `.gitignore`; Gradle-wrapped Spring Boot API (Java 21) with Flyway migrations; Next.js/TypeScript web app; Docker Compose for local Postgres + mail catcher; `README` local-start instructions; GitHub Actions CI (format/lint, test, build for both API and web); staff register/login/logout; organizations with owner membership; tenant-isolated event create/edit/lifecycle (draft→open→locked→reopened) with join-code rotation; guest join with duplicate-name disambiguation and event-scoped credential; organizer-only roster read; seeded demo event | CI config written and exercised locally (`./gradlew check && ./gradlew build`, `npm run lint && npm run build`) — all green; 12 JUnit integration tests pass (cross-tenant denial, guest event-boundary, lifecycle/join-gating, roster authorization); full browser flow (register→org→event→open registration→guest join→roster visible→lock blocks late join) verified with Playwright against the real running app, not just unit tests; demo seed verified joinable end-to-end |
 | **M2** Competition engine | Immutable ruleset snapshot; round/attempt state machines; scoring module covering every vector in `09`; roster management; judge entry + append-only revisions | All `09` conformance + property tests pass; no direct competitor edit path exists; correction path preserves source history |
 | **M3** Organizer/competitor UI | Event wizard, roster, control room, judge entry, waiting room, results, error/empty/offline states | End-to-end create→publish flow works at 360px and desktop; keyboard and screen-reader critical paths checked |
 | **M4** Scramble controls + 3D guide | Generator dependency/license review; encrypted payload; role-scoped reveal; extra sequences; print; move guide; applied/checked log; self-scramble gated to casual phone mode | Security tests prove no scramble leakage across API/HTML/cache/logs/public view; sample physical-cube guide usability checked |
 | **M5** Advancement, display, history | Standings; tie/percentage preview; commit; public display; organization history; CSV export | Concurrency/idempotency tests pass; public display is read-only and reveals only published fields |
 | **M6** Reliability, privacy, pilot | Offline judge-entry queue + printed fallback; backups/restore drill; monitoring; account deletion/export; terms/privacy placeholders reviewed; accessibility audit; security check; pilot checklist | Pilot run with real people and a physical timer; every unchecked `12` item listed; owner sign-off |
 
-### M1 greenfield setup detail (planned, not yet implemented)
+### M1 greenfield setup detail (built)
 
-- `.gitignore`: standard Java/Gradle-or-Maven + Node/Next.js ignores (build output, `.env*`,
-  IDE files, `node_modules`, coverage, local Docker volumes) — no secrets or environment files
-  ever committed, per `00` §10 and `04`.
-- Pinned toolchain: exact Java LTS version, Spring Boot version, Gradle/Maven wrapper committed;
-  exact Node LTS version (`.nvmrc`/`engines` field), package manager lockfile committed for the
-  web app. `00` §10: "Pin supported dependency versions at project start and lock them."
-  Dependency choices (migration tool, test frameworks, lint/format tools) recorded in
-  `DECISIONS.md` when selected.
-- Local start instructions: `README`/`CONTRIBUTING` documenting `docker compose up` for Postgres,
-  API run command, web dev-server command, migration command, and how to run the seed script —
-  so a new contributor or reviewer can run the stack without tribal knowledge.
-- CI checks: a pipeline (e.g., GitHub Actions) running, for both API and web, on every push/PR —
-  format/lint check, full test suite, and a production build — failing the build on any violation.
-  No deployment step in this CI at M1; CI is verification-only until a staging target exists.
+- `.gitignore` at repo root covers both API (Gradle build output, `.gradle/`) and web
+  (`node_modules`, `.next`, build output) plus `.env*` (except `.env.example`), IDE files, logs.
+- Pinned toolchain: Java 21 (Gradle toolchain in `api/build.gradle.kts`), Gradle 8.10.2 (wrapper
+  committed under `api/gradle/wrapper/`), Node 22.x (`web/.nvmrc` + `package.json` `engines`),
+  npm lockfile (`web/package-lock.json`) committed. Migration tool decided as **Flyway** (OD05,
+  recorded in `DECISIONS.md`).
+- `README.md` at repo root: `docker compose up`, API run command (plain and `seed` profile), web
+  install/dev commands, and the checks section below.
+- CI: `.github/workflows/ci.yml`, two jobs (`api`, `web`) on every push/PR. `api` runs
+  `./gradlew check` (Spotless format check + JUnit tests) then `./gradlew build`, against a
+  `postgres:16-alpine` service container. `web` runs `npm ci`, `npm run lint` (ESLint), and
+  `npm run build` (which also type-checks). No deployment step — verification only, as planned.
 
 ## 6. Blockers needing your decision
 
@@ -182,6 +179,80 @@ tooling and CI configuration only):
 
 ## 7. Recommendation
 
-M0 is complete. Recommending **M1 — Product foundation + project setup** as the first
-implementation milestone, including the greenfield scaffolding detailed in §5 above. Waiting for
-review before writing any application code.
+M0 and M1 are both complete. Recommending **M2 — Competition engine** (ruleset snapshot,
+round/attempt state machines, the scoring module covering every `09` conformance vector, roster
+management, judge entry with append-only revisions) as the next milestone. Waiting for review
+before starting M2.
+
+## 8. M1 completion summary
+
+### What works end to end
+
+Verified in two independent ways: 12 JUnit integration tests (`AuthFlowTest`,
+`CrossTenantAccessTest`, `EventLifecycleAndJoinTest`, `RosterAuthorizationTest`) running the real
+Spring context against a real PostgreSQL database, and a real-browser walkthrough (Playwright
+driving actual Chromium against the running API and the running Next.js dev server, not a mock):
+register a staff account → log in → create an organization → create a draft event → open
+registration → copy the join link/code shown on the event page → join as a guest in a separate
+browser context (no shared cookies) with display-name disambiguation on repeat names → organizer
+sees the guest appear on the roster → lock registration → a late guest's join attempt is
+correctly rejected → join-code rotation invalidates the old code. The seeded demo event
+(`SPRING_PROFILES_ACTIVE=seed`) is joinable the same way.
+
+### Commands run and results
+
+| Command | Result |
+|---|---|
+| `cd api && ./gradlew check` | **BUILD SUCCESSFUL** — Spotless format check clean; 12/12 JUnit tests pass |
+| `cd api && ./gradlew build` | **BUILD SUCCESSFUL** — produces `build/libs/twistmeet-api-0.1.0-m1.jar` |
+| `cd web && npm run lint` | **No ESLint warnings or errors** |
+| `cd web && npm run build` | **Compiled successfully**, type-checked, 8 routes built |
+| Playwright E2E walkthrough (register→org→event→open→join→roster→lock→reject-late-join) | **PASS**, run repeatedly for stability after fixing two real bugs found this way (see below) |
+
+### Real bugs found and fixed while verifying in a browser (not just unit tests)
+
+1. **Missing CORS configuration.** The web app (`:3000`) and API (`:8080`) are different origins;
+   cookie-based auth needs explicit CORS with credentials, which had not been added. Fixed with a
+   `CorsConfigurationSource` restricted to the single configured web origin. The JUnit suite never
+   caught this because it calls the API directly, not through a browser enforcing CORS.
+2. **A stale-`currentTarget` bug in the dashboard's "create organization"/"create event" forms.**
+   Both handlers read `e.currentTarget.reset()` *after* an `await`, by which point React has
+   already nulled `currentTarget` (a well-known gotcha, not a pooling issue) — the request itself
+   succeeded, but the resulting exception was swallowed by the `catch` block and shown as "Failed
+   to create organization," hiding a working feature behind a false error. Fixed by capturing the
+   form element before the first `await`. Found only by running the real app in a loop, not by
+   `next lint`/`next build`, which stayed green throughout — recorded in `DECISIONS.md` as a
+   concrete example of why build/lint passing is not the same as the feature working.
+
+### Changed/added files
+
+- `api/` — new Gradle project: `build.gradle.kts`, `settings.gradle.kts`, Gradle wrapper, full
+  Spring Boot source tree under `src/main/java/com/twistmeet/api/` (packages: `common`, `auth`,
+  `org`, `event`, `registration`, `config`), one Flyway migration
+  (`src/main/resources/db/migration/V1__init_m1_schema.sql`), `application.yml`, and the test
+  tree under `src/test/java` (4 test classes + `support/` test harness) with
+  `src/test/resources/application-test.yml`.
+- `web/` — new Next.js project generated via `create-next-app`, with `src/lib/` (branding
+  config, API client, shared types), and pages for home, sign-in, dashboard, event detail, join
+  (+ pre-filled-code variant), and the guest waiting room; `src/app/globals.css` carries the
+  `07` design tokens. `.env.example`, `.nvmrc`.
+- `docker-compose.yml` — Postgres + MailDev.
+- `.gitignore` (root), `README.md` (root), `.github/workflows/ci.yml`.
+- `DECISIONS.md`, `TRACEABILITY.md`, this file — updated for everything above.
+
+### Remaining gaps going into M2 (not blockers, named so they aren't lost)
+
+- `POST /events/{eventId}/registration/reopen` is implemented but has no dedicated test.
+- Join-code rate limiting (`SimpleRateLimiter`) is implemented but not covered by an automated
+  test (manually exercising the limiter would require either 20+ scripted requests or exposing a
+  test hook; deferred rather than adding either under this milestone's scope).
+- MFA, password reset, and staff invitations (`08` endpoints 4–7, 11–13) are not built — all
+  explicitly out of M1's stated scope (MFA is "required before public beta" per `00` §10; staff
+  invitations are an M2+ roster/staff-management concern).
+- Guest/public role-filtered event detail (`GET /events/{eventId}` for non-staff callers) is not
+  built; guests currently only get the event name via the join response, which is enough for M1's
+  "join by link/code" scope but will need revisiting once public event pages are built (M3/M5).
+- The web app's pages are functional but not yet styled/polished to the full `07` component spec
+  (no `StatusBadge`/`ConfirmDialog`/etc. as reusable components yet) — reasonable for a foundation
+  milestone whose stated goal was a "shared UI foundation," not the organizer/competitor UI itself
+  (that's M3).

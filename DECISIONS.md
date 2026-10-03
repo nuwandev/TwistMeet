@@ -4,10 +4,13 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
-## Status: M0 complete — repository inspection and planning only
+## Status: M1 complete — Product foundation + project setup
 
-No application code exists yet. This file records the M0 findings, the defaults that govern M1
-onward unless the product owner overrides them, and the open decisions register below.
+M0 (repository inspection and planning) is complete and recorded below unchanged. M1 is now also
+complete: repository scaffolding, CI, staff auth, organization membership, tenant isolation,
+event lifecycle foundation, and guest join. See "M1 implementation decisions" below for what M1
+adds, and `M0-REPORT.md` §8 for the full completion summary (commands run, what works end to end,
+bugs found and fixed, remaining gaps).
 
 ## Stack decision
 
@@ -77,6 +80,84 @@ default must not be guessed.
 None of the "safe default" values above are treated as decided — they are the owner's starting
 point to confirm or override. Items marked "None" have no documented default and must not be
 guessed; they stay open until the named owner resolves them.
+
+**OD05 resolved at M1 (explicit instruction):** migrations use **Flyway** (`org.flywaydb:flyway-core`
++ `flyway-database-postgresql`), not Liquibase. The stack decision above is left as written
+(listing both) for the M0 historical record; this line is the actual, final choice. Migrations
+live in `api/src/main/resources/db/migration`; `spring.jpa.hibernate.ddl-auto=validate` in every
+profile so Hibernate can never silently patch the schema (00 §10).
+
+**OD04 partially resolved at M1 (explicit instruction):** local and CI development use a **local
+mail catcher** (`maildev/maildev` in `docker-compose.yml`, SMTP on 1025, web inbox on 1080) for
+all outgoing mail (registration email verification). **No production email provider has been
+chosen** — `MailService` is written against the generic `JavaMailSender` interface specifically so
+a provider choice later (OD04's production half) only changes configuration, not calling code.
+Do not point `TWISTMEET_MAIL_HOST`/`TWISTMEET_MAIL_PORT` at a real provider without that review.
+
+## M1 implementation decisions
+
+Additions and simplifications made while building M1, per `00` §12 ("coding agent must choose the
+safer simpler behavior, document the assumption... add acceptance coverage"). None of these change
+a product requirement or default; they are implementation choices the specs left unspecified.
+
+- **Route 50 (`08`'s `GET /guest/.../current-scramble`) is deliberately left unresolved and
+  unimplemented.** `08` abbreviates this path with an ellipsis and it belongs to the self-scramble
+  casual-phone-mode feature, which is explicitly M4 scope (scramble vault, not built in M1). See
+  `TRACEABILITY.md` section G, row 50, which now also flags this as an open implementation
+  question for whoever builds M4 (candidate path given as an example only, not a decision).
+- **Minimal roster-read addition:** `GET /api/v1/events/{eventId}/entrants` (organizer/staff-only)
+  was added even though `08` does not enumerate a roster-list endpoint, because the organizer
+  otherwise has no way to see who has joined — see the code comment on `RosterController` and
+  `TRACEABILITY.md` section G. It exposes only data the organizer already has access to by other
+  means (each entrant via other calls); it does not add a new capability.
+- **CSRF cookie issuance:** Spring Security's `CsrfFilter` only stores a deferred token supplier on
+  the request; nothing in a pure JSON API ever resolves it, so the `XSRF-TOKEN` cookie would never
+  actually be issued without help. Added `CsrfCookieFilter` (the pattern Spring Security's own
+  SPA/Angular CSRF guide documents) to force resolution on every request. Verified manually with
+  curl end-to-end (register → login → cookie-and-header logout → 401 on subsequent `/me`) before
+  trusting it in the automated test suite.
+- **Edit lock simplification:** `08` allows editing event config until entrants are registered,
+  tracked separately from lifecycle state. M1 takes the simpler, safer rule: editable only while
+  `state == DRAFT`. Documented here rather than inventing a separate "has entrants" flag.
+- **Join code stored twice (plaintext + SHA-256 hash):** a join code is "invitation convenience,
+  not a password" (`00` §7) and the organizer must be able to redisplay it (QR/screen) at any time,
+  so it cannot be purely one-way hashed like a password. The hash column matches `04`'s named
+  entity field and is what the join endpoint actually queries against guest input; see the code
+  comment on `Event.java`.
+- **Guest credential TTL:** set to 30 days from issuance as a placeholder. The real retention
+  period for guest sessions is a privacy/retention policy question (`04` "Define retention periods
+  for abandoned guest sessions") that has not been decided — tracked as a gap, not a new OD item,
+  since it only affects when an already-working credential stops working.
+- **In-memory rate limiting:** `SimpleRateLimiter` (login, join-code attempts) is per-instance,
+  not shared across replicas. Adequate for a single-instance M1/pilot deployment; flagged in its
+  own class comment as needing a shared store before multi-instance deployment (consistent with
+  the "no Redis at launch" stack decision — revisit together).
+- **Test infrastructure — real Postgres, not Testcontainers:** this sandbox session has no Docker
+  daemon available (`docker run hello-world` fails to reach the Docker socket), so integration
+  tests run against a real PostgreSQL instance via JDBC (local `postgresql` service here; a
+  `postgres:` service container in CI — see `.github/workflows/ci.yml`) rather than Testcontainers.
+  Both the local and CI setups configure the same `TWISTMEET_DB_URL`/`_USER`/`_PASSWORD` variables,
+  so the test code itself does not know or care which one is running. Tests reset the schema via
+  `Flyway.clean()` + `Flyway.migrate()` before each test method for isolation.
+- **Display-name hygiene vs. content policy:** `DisplayNamePolicy` only rejects control characters
+  and `<`/`>` as a safety floor. The configurable profanity/reserved-word filter itself is OD08,
+  still unresolved — not implemented in M1.
+- **CORS:** the web app and API are separate origins (`:3000`/`:8080` in dev, and likely separate
+  hosts later). Cookie-based auth across origins needs explicit CORS with credentials allowed;
+  added a `CorsConfigurationSource` restricted to the single configured web origin (never `*`,
+  which Spring rejects alongside `allowCredentials`). Found this gap by actually running the web
+  app against the API in a browser (Playwright), not from the automated JUnit suite alone — the
+  JUnit tests talk to the API directly and never exercised cross-origin behavior.
+- **A real frontend bug found and fixed during M1 browser testing:** `dashboard/page.tsx`'s form
+  handlers read `e.currentTarget` *after* an `await` to call `.reset()`. React clears
+  `currentTarget` once an event handler yields past its dispatch phase, so this intermittently
+  threw and was swallowed by the `catch` block — the organization/event had actually been created
+  successfully (the API returned 201), but the UI reported "Failed to create organization" and
+  never revealed the next step. Fixed by capturing the form element in a local variable before
+  the first `await`. This was only caught by driving the real app with Playwright end-to-end,
+  not by the API's own test suite or by `next build`/`next lint`, which both passed throughout —
+  a concrete instance of why "build passes" isn't the same as "the feature works," per the
+  playbook's own caution against claiming success from build/lint alone.
 
 ## Deviations from documents
 
