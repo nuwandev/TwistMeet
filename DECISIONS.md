@@ -34,7 +34,7 @@ reference stack from `00-authoritative-build-contract.md` §10 as-is, no deviati
 
 ## Open items requiring product-owner decision
 
-See the chat report for the full list; tracked here for traceability:
+See `M0-REPORT.md` for the full list; tracked here for traceability:
 
 1. **Precision unit**: contract text is inconsistent between milliseconds and centiseconds in a few
    places (see Contradictions in the M0 report). Resolving to **integer milliseconds** everywhere,
@@ -51,3 +51,13 @@ See the chat report for the full list; tracked here for traceability:
 
 None yet. This section will record any approved deviation with rationale and the specific
 document/section it diverges from.
+
+## M0 review record (self-review against the contract)
+
+Reviewed this file against `00-authoritative-build-contract.md` and the supporting documents
+before starting M1 (see `M0-REPORT.md` §4 for the full writeup). Result: no undocumented
+assumption or deviation found. The stack decision and defaults listed above are the contract's
+own defaults taken verbatim, not reopened or altered; the precision note is a clarification of
+`02-rules-and-integrity.md`'s looser wording against the controlling documents' unambiguous
+integer-millisecond rule, not an invented choice. This section stays empty until a real deviation
+is proposed and approved.
