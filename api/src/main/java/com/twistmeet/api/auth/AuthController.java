@@ -1,0 +1,145 @@
+package com.twistmeet.api.auth;
+
+import com.twistmeet.api.auth.AuthDtos.LoginRequest;
+import com.twistmeet.api.auth.AuthDtos.RegisterRequest;
+import com.twistmeet.api.auth.AuthDtos.UserView;
+import com.twistmeet.api.auth.AuthDtos.VerifyEmailRequest;
+import com.twistmeet.api.common.ApiException;
+import com.twistmeet.api.common.SecretTokens;
+import com.twistmeet.api.common.SimpleRateLimiter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import java.time.Duration;
+import java.time.Instant;
+import org.springframework.core.env.Environment;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/v1/auth")
+public class AuthController {
+
+  private final UserRepository userRepository;
+  private final EmailVerificationTokenRepository tokenRepository;
+  private final PasswordEncoder passwordEncoder;
+  private final AuthenticationManager authenticationManager;
+  private final MailService mailService;
+  private final SimpleRateLimiter rateLimiter;
+  private final String webBaseUrl;
+  private final SecurityContextRepository securityContextRepository =
+      new HttpSessionSecurityContextRepository();
+
+  public AuthController(
+      UserRepository userRepository,
+      EmailVerificationTokenRepository tokenRepository,
+      PasswordEncoder passwordEncoder,
+      AuthenticationManager authenticationManager,
+      MailService mailService,
+      SimpleRateLimiter rateLimiter,
+      Environment env) {
+    this.userRepository = userRepository;
+    this.tokenRepository = tokenRepository;
+    this.passwordEncoder = passwordEncoder;
+    this.authenticationManager = authenticationManager;
+    this.mailService = mailService;
+    this.rateLimiter = rateLimiter;
+    this.webBaseUrl = env.getProperty("twistmeet.web.base-url", "http://localhost:3000");
+  }
+
+  @PostMapping("/register")
+  public ResponseEntity<UserView> register(@Valid @RequestBody RegisterRequest request) {
+    String email = request.email().trim().toLowerCase();
+    if (userRepository.existsByEmail(email)) {
+      // Avoid confirming/denying account existence any more than necessary (12 SP04
+      // "generic errors avoid account enumeration"); EMAIL_IN_USE is still distinguishable by
+      // design here since registration (unlike login) is not a credential-guessing target in
+      // the same way, but a future hardening pass could return a generic "check your email"
+      // response instead.
+      throw ApiException.conflict("EMAIL_IN_USE", "An account with this email already exists");
+    }
+    User user = new User(email, passwordEncoder.encode(request.password()), request.displayName());
+    user = userRepository.save(user);
+
+    String rawToken = SecretTokens.newOpaqueToken();
+    tokenRepository.save(
+        new EmailVerificationToken(
+            user.getId(),
+            SecretTokens.sha256Hex(rawToken),
+            Instant.now().plus(Duration.ofDays(1))));
+    mailService.sendVerificationEmail(
+        user.getEmail(), webBaseUrl + "/verify-email?token=" + rawToken);
+
+    return ResponseEntity.status(HttpStatus.CREATED).body(UserView.of(user));
+  }
+
+  @PostMapping("/email/verify")
+  public ResponseEntity<Void> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+    String hash = SecretTokens.sha256Hex(request.token());
+    EmailVerificationToken token =
+        tokenRepository
+            .findByTokenHash(hash)
+            .filter(t -> t.isUsable(Instant.now()))
+            .orElseThrow(
+                () ->
+                    ApiException.badRequest(
+                        "TOKEN_INVALID", "Verification link is invalid or expired"));
+    User user =
+        userRepository
+            .findById(token.getUserId())
+            .orElseThrow(() -> ApiException.notFound("User not found"));
+    user.markEmailVerified();
+    userRepository.save(user);
+    token.markUsed();
+    tokenRepository.save(token);
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/login")
+  public ResponseEntity<UserView> login(
+      @Valid @RequestBody LoginRequest request,
+      HttpServletRequest httpRequest,
+      HttpServletResponse httpResponse) {
+    String rateLimitKey = "login:" + request.email().trim().toLowerCase();
+    if (!rateLimiter.tryAcquire(rateLimitKey, 10, Duration.ofMinutes(15))) {
+      throw ApiException.rateLimited("Too many login attempts, try again later");
+    }
+
+    Authentication authentication;
+    try {
+      authentication =
+          authenticationManager.authenticate(
+              new UsernamePasswordAuthenticationToken(
+                  request.email().trim().toLowerCase(), request.password()));
+    } catch (BadCredentialsException e) {
+      // Deliberately generic message/status regardless of whether the email exists.
+      throw new ApiException(
+          HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid email or password");
+    }
+
+    SecurityContext context = SecurityContextHolder.createEmptyContext();
+    context.setAuthentication(authentication);
+    SecurityContextHolder.setContext(context);
+    securityContextRepository.saveContext(context, httpRequest, httpResponse);
+
+    AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
+    User user =
+        userRepository
+            .findById(principal.getUserId())
+            .orElseThrow(() -> ApiException.notFound("User not found"));
+    return ResponseEntity.ok(UserView.of(user));
+  }
+}
