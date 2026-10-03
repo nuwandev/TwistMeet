@@ -232,7 +232,7 @@ the real-time channel as a 63rd row at the end. This replaces the earlier underc
 
 | # | Method & route | Owning module | Authorization / role | Relevant data | Acceptance test / release evidence | M1 status |
 |---|---|---|---|---|---|---|
-| 1 | `POST /auth/register` | Auth | Public (becomes org owner on success) | `User` | Registration test; email verification required before live event (SP04) | **Built** — `AuthFlowTest` |
+| 1 | `POST /auth/register` | Auth | Public (becomes org owner on success); rate-limited 8/15min per client | `User` | Registration test; identical response whether or not the email is already registered (`AuthFlowTest.registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered`); rate-limit test (`AuthFlowTest.registrationIsRateLimited`) | **Built** — `AuthFlowTest` |
 | 2 | `POST /auth/login` | Auth | Public (credentials) | `User` | Generic-error/rate-limit test (SP04) | **Built** — `AuthFlowTest` |
 | 3 | `POST /auth/logout` | Auth | Authenticated staff | `User` session | Session-revocation test | **Built** — `AuthFlowTest` |
 | 4 | `POST /auth/password/forgot` | Auth | Public (email) | `User` | Enumeration-resistant generic-response test | Not built (M1 scope is register/login/logout only; password reset deferred) |
@@ -296,6 +296,7 @@ the real-time channel as a 63rd row at the end. This replaces the earlier underc
 | 62 | `GET /events/{eventId}/audit` | Audit | Owner/Organizer | `AuditEvent` | Restricted-access test | Not built (audit events are recorded from M1 onward via `AuditService`; no read endpoint exposed yet) |
 | 63 | Real-time event-room subscription (SSE or WebSocket) | Real-time | Authenticated staff or guest, event-scoped subscription; public channel is a separate, published-fields-only stream | Minimal state-delta payloads (`{eventId, eventVersion, eventType, resourceId, changedFields, occurredAt}`) | No-scramble-in-payload test; public-channel-published-fields-only test; rate-limit/unsubscribe-on-scope-change test (R46) | Not built — M3 scope (Tournament Control needs this) |
 | 64 | `GET /events/{eventId}/entrants` *(minimal addition, not in `08`'s enumerated list)* | Roster | Organizer/staff, org membership required | `EventEntrant` | Role-authorization test (`RosterAuthorizationTest`); 404-for-non-member test | **Built** — `RosterAuthorizationTest`, `EventLifecycleAndJoinTest`. See `RosterController`'s class comment and DECISIONS.md. |
+| 65 | `POST /auth/email/verify` *(implemented at M1; now documented in `08`'s endpoint list — see the note on row 1's neighboring bullet there)* | Auth | Public, possession of the emailed token; rate-limited 10/15min per client; CSRF-exempt like register/login (no prior session cookie to echo) | `EmailVerificationToken`, `User` (emailVerified) | Rate-limit test (`AuthFlowTest.emailVerificationIsRateLimited`); invalid/expired-token rejection is exercised incidentally by that same test. **Gap:** no automated happy-path test exists yet — doing so would require capturing the raw token from the outgoing email (currently only ever held in memory before being emailed), which this review pass did not add; tracked here rather than silently skipped. | **Built, partially tested** |
 
 Cross-cutting API conventions that apply to every route above (idempotency keys on writes,
 optimistic concurrency via `expectedVersion`/`If-Match`, stable error codes, cursor pagination on
@@ -315,10 +316,12 @@ This document maps:
   R14–R62),
 - all **19** scoring conformance vectors and property tests in `09`,
 - all **22** screens in `07`,
-- all **62** distinct REST routes plus the 1 real-time subscription channel (**63 API surfaces**
-  in total — see section G for the corrected count and the full per-route table; the figure of
-  "51" in the first draft of this document was an undercount from not expanding every
-  comma-separated route group, and has been corrected here),
+- all **62** distinct REST routes named in `08` plus the 1 real-time subscription channel (**63
+  API surfaces** in total — see section G for the corrected count and the full per-route table;
+  the figure of "51" in the first draft of this document was an undercount from not expanding
+  every comma-separated route group, and has been corrected here), plus **2 minimal, documented
+  additions** not itemized in `08`'s original list (row 64, roster read; row 65, email
+  verification — both now also noted directly in `08` itself, not just here),
 - all **28** release-acceptance checklist items plus the event-day/deployment/sign-off process
   items in `12`.
 
@@ -341,3 +344,9 @@ narrative intent becomes testable.
   previous version, no corrections needed there.
 - Confirmed no product requirement, default, or test expectation was altered while fixing the
   route table — only the API section was expanded and the count corrected.
+- **M1 review follow-up:** added row 65 (`POST /auth/email/verify`), which M1 implemented and
+  tested for rate limiting but had never added to this table — an undocumented endpoint, now
+  fixed. Updated row 1 (`register`) to reflect the non-enumerable response and its rate limit.
+  Also added the same `/auth/email/verify` line to `08-data-api-contract.md` itself (see that
+  file), since it's the actual "API contract" document and the endpoint was missing from it too,
+  not just from this traceability table.

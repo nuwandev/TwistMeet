@@ -159,6 +159,37 @@ a product requirement or default; they are implementation choices the specs left
   a concrete instance of why "build passes" isn't the same as "the feature works," per the
   playbook's own caution against claiming success from build/lint alone.
 
+## M1 review findings fixed
+
+Three findings from the M1 review, addressed on the same branch before starting M2:
+
+1. **Registration revealed whether an email was already registered.** `POST /auth/register`
+   previously returned `201` with the new account's data for a fresh email and `409
+   EMAIL_IN_USE` for an existing one — two distinguishable outcomes that let a caller enumerate
+   registered emails (12 SP04 "generic errors avoid account enumeration"). Fixed: both cases now
+   return the identical `202 Accepted` with a generic `{email, message}` body containing no
+   account fields (no `id`/`emailVerified`/`createdAt`), and the password is always hashed
+   (whether or not it's persisted) so the branch taken doesn't show up in response timing either.
+   A duplicate registration attempt also cannot take over the existing account — the original
+   password keeps working and the "new" password submitted on the duplicate attempt does not.
+   Tested in `AuthFlowTest.registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered`.
+2. **No rate limiting on registration or email verification.** Both are now rate-limited by
+   client address via the existing `SimpleRateLimiter` (same mechanism as login/join): 8
+   registration attempts and 10 verification attempts per 15 minutes. `SimpleRateLimiter` gained
+   a `clearAll()` test hook, called from `AbstractIntegrationTest`'s per-test reset, because it is
+   a singleton bean whose state would otherwise leak across test methods within one Spring
+   context (unlike the database, which Flyway already resets per test) — without that, these new
+   rate-limit tests would be flaky depending on how many other tests had already registered from
+   the same loopback address. Tested in `AuthFlowTest.registrationIsRateLimited` and
+   `.emailVerificationIsRateLimited`.
+3. **`POST /auth/email/verify` was undocumented.** It was implemented in M1 (and already
+   rate-limited as of this pass) but never added to `08-data-api-contract.md` or
+   `TRACEABILITY.md`. Fixed: added to both — see `08`'s "Identity and organization" endpoint list
+   and `TRACEABILITY.md` row 65. While documenting it, also found and fixed that it was missing
+   from the CSRF-ignore list in `SecurityConfig` (it does not ride an existing session cookie any
+   more than register/login do — a user clicking a link in their email client has no prior CSRF
+   cookie to echo back), so it would have 403'd in practice; added alongside register/login/join.
+
 ## Deviations from documents
 
 None yet. This section will record any approved deviation with rationale and the specific
