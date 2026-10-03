@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  api:
+    name: API (format, lint, test, build)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: twistmeet_test
+          POSTGRES_USER: twistmeet
+          POSTGRES_PASSWORD: twistmeet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U twistmeet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TWISTMEET_DB_URL: jdbc:postgresql://localhost:5432/twistmeet_test
+      TWISTMEET_DB_USER: twistmeet
+      TWISTMEET_DB_PASSWORD: twistmeet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Gradle check (spotlessCheck + test)
+        working-directory: api
+        run: ./gradlew check --console=plain
+
+      - name: Gradle build
+        working-directory: api
+        run: ./gradlew build --console=plain
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-reports
+          path: api/build/reports/tests
+
+  web:
+    name: Web (lint, typecheck, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Lint (ESLint + TypeScript via next lint)
+        working-directory: web
+        run: npm run lint
+
+      - name: Build (includes TypeScript type-checking)
+        working-directory: web
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+        run: npm run build
