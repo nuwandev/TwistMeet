@@ -1,0 +1,30 @@
+# --- Secrets / environment ---
+.env
+.env.*
+!.env.example
+
+# --- API (Gradle/Java) ---
+api/.gradle/
+api/build/
+!api/gradle/wrapper/gradle-wrapper.jar
+!api/gradle/wrapper/gradle-wrapper.properties
+*.class
+*.hprof
+
+# --- Web (Next.js/Node) ---
+web/node_modules/
+web/.next/
+web/out/
+web/.turbo/
+web/coverage/
+web/*.tsbuildinfo
+web/next-env.d.ts
+
+# --- IDE / OS ---
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# --- Local Docker volumes / logs ---
+*.log
