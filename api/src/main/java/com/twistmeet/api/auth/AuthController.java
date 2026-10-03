@@ -61,33 +61,48 @@ public class AuthController {
   }
 
   @PostMapping("/register")
-  public ResponseEntity<UserView> register(@Valid @RequestBody RegisterRequest request) {
-    String email = request.email().trim().toLowerCase();
-    if (userRepository.existsByEmail(email)) {
-      // Avoid confirming/denying account existence any more than necessary (12 SP04
-      // "generic errors avoid account enumeration"); EMAIL_IN_USE is still distinguishable by
-      // design here since registration (unlike login) is not a credential-guessing target in
-      // the same way, but a future hardening pass could return a generic "check your email"
-      // response instead.
-      throw ApiException.conflict("EMAIL_IN_USE", "An account with this email already exists");
+  public ResponseEntity<AuthDtos.RegistrationAccepted> register(
+      @Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+    String rateLimitKey = "register:" + httpRequest.getRemoteAddr();
+    if (!rateLimiter.tryAcquire(rateLimitKey, 8, Duration.ofMinutes(15))) {
+      throw ApiException.rateLimited("Too many registration attempts, try again later");
     }
-    User user = new User(email, passwordEncoder.encode(request.password()), request.displayName());
-    user = userRepository.save(user);
 
-    String rawToken = SecretTokens.newOpaqueToken();
-    tokenRepository.save(
-        new EmailVerificationToken(
-            user.getId(),
-            SecretTokens.sha256Hex(rawToken),
-            Instant.now().plus(Duration.ofDays(1))));
-    mailService.sendVerificationEmail(
-        user.getEmail(), webBaseUrl + "/verify-email?token=" + rawToken);
+    String email = request.email().trim().toLowerCase();
+    // Always hash the submitted password, whether or not the account already exists, so this
+    // endpoint's response time does not itself reveal which branch was taken. Review finding:
+    // registration previously returned 409 EMAIL_IN_USE for an existing email and 201 with the
+    // new account otherwise — two different statuses and bodies that let a caller enumerate
+    // which emails are already registered (12 SP04 "generic errors avoid account enumeration").
+    // Both branches below now produce the exact same status and body.
+    String passwordHash = passwordEncoder.encode(request.password());
+    if (!userRepository.existsByEmail(email)) {
+      User user = userRepository.save(new User(email, passwordHash, request.displayName()));
+      String rawToken = SecretTokens.newOpaqueToken();
+      tokenRepository.save(
+          new EmailVerificationToken(
+              user.getId(),
+              SecretTokens.sha256Hex(rawToken),
+              Instant.now().plus(Duration.ofDays(1))));
+      mailService.sendVerificationEmail(
+          user.getEmail(), webBaseUrl + "/verify-email?token=" + rawToken);
+    }
 
-    return ResponseEntity.status(HttpStatus.CREATED).body(UserView.of(user));
+    return ResponseEntity.status(HttpStatus.ACCEPTED)
+        .body(
+            new AuthDtos.RegistrationAccepted(
+                email,
+                "If this email can be registered, check your inbox for a verification link."));
   }
 
   @PostMapping("/email/verify")
-  public ResponseEntity<Void> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+  public ResponseEntity<Void> verifyEmail(
+      @Valid @RequestBody VerifyEmailRequest request, HttpServletRequest httpRequest) {
+    String rateLimitKey = "verify-email:" + httpRequest.getRemoteAddr();
+    if (!rateLimiter.tryAcquire(rateLimitKey, 10, Duration.ofMinutes(15))) {
+      throw ApiException.rateLimited("Too many verification attempts, try again later");
+    }
+
     String hash = SecretTokens.sha256Hex(request.token());
     EmailVerificationToken token =
         tokenRepository

@@ -34,4 +34,12 @@ public class SimpleRateLimiter {
             });
     return updated.count() <= maxAttempts;
   }
+
+  /**
+   * Test-only hook: clears all tracked windows so tests don't leak rate-limit state into each
+   * other.
+   */
+  public void clearAll() {
+    windows.clear();
+  }
 }

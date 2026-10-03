@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
-import { UserView } from "@/lib/types";
+import { RegistrationAccepted, UserView } from "@/lib/types";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -20,7 +20,10 @@ export default function SignInPage() {
     setBusy(true);
     try {
       if (mode === "register") {
-        await apiFetch<UserView>("/api/v1/auth/register", {
+        // The response is deliberately generic (same for a brand-new or already-registered
+        // email — see DECISIONS.md) and doesn't tell us whether this created an account, so we
+        // always just continue straight to login with the same credentials.
+        await apiFetch<RegistrationAccepted>("/api/v1/auth/register", {
           method: "POST",
           body: { email, password, displayName },
         });

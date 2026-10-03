@@ -26,7 +26,7 @@ class AuthFlowTest extends AbstractIntegrationTest {
                 "correct-horse-battery",
                 "displayName",
                 "Alex"));
-    assertThat(registerResponse.getStatusCode().value()).isEqualTo(201);
+    assertThat(registerResponse.getStatusCode().value()).isEqualTo(202);
 
     ResponseEntity<String> meBeforeLogin = client.get("/api/v1/me");
     assertThat(meBeforeLogin.getStatusCode().value()).isEqualTo(401);
@@ -45,11 +45,20 @@ class AuthFlowTest extends AbstractIntegrationTest {
   }
 
   @Test
-  void duplicateRegistrationIsRejected() {
-    client.post(
-        "/api/v1/auth/register",
-        Map.of(
-            "email", "dup@example.com", "password", "correct-horse-battery", "displayName", "Dup"));
+  void registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered() throws Exception {
+    // Review finding: registration used to answer 201 for a new email and 409 EMAIL_IN_USE for
+    // an existing one — two distinguishable outcomes a caller could use to enumerate which
+    // emails are registered. Both calls below must now be indistinguishable.
+    ResponseEntity<String> firstAttempt =
+        client.post(
+            "/api/v1/auth/register",
+            Map.of(
+                "email",
+                "dup@example.com",
+                "password",
+                "correct-horse-battery",
+                "displayName",
+                "Dup"));
     client.clearCookies();
 
     ResponseEntity<String> secondAttempt =
@@ -57,7 +66,77 @@ class AuthFlowTest extends AbstractIntegrationTest {
             "/api/v1/auth/register",
             Map.of(
                 "email", "dup@example.com", "password", "another-password", "displayName", "Dup2"));
-    assertThat(secondAttempt.getStatusCode().value()).isEqualTo(409);
+    client.clearCookies();
+
+    assertThat(secondAttempt.getStatusCode().value())
+        .isEqualTo(firstAttempt.getStatusCode().value());
+    assertThat(secondAttempt.getBody()).isEqualTo(firstAttempt.getBody());
+    assertThat(secondAttempt.getStatusCode().value()).isEqualTo(202);
+
+    JsonNode body = objectMapper.readTree(firstAttempt.getBody());
+    assertThat(body.has("id")).isFalse();
+    assertThat(body.has("emailVerified")).isFalse();
+    assertThat(body.has("createdAt")).isFalse();
+
+    // The second ("re-registration") attempt must not have taken over the account: the
+    // original password still works, and the second attempt's password does not.
+    ResponseEntity<String> loginWithOriginalPassword =
+        client.post(
+            "/api/v1/auth/login",
+            Map.of("email", "dup@example.com", "password", "correct-horse-battery"));
+    assertThat(loginWithOriginalPassword.getStatusCode().value()).isEqualTo(200);
+    client.clearCookies();
+
+    ResponseEntity<String> loginWithSecondPassword =
+        client.post(
+            "/api/v1/auth/login",
+            Map.of("email", "dup@example.com", "password", "another-password"));
+    assertThat(loginWithSecondPassword.getStatusCode().value()).isEqualTo(401);
+  }
+
+  @Test
+  void registrationIsRateLimited() {
+    String password = "correct-horse-battery";
+    int attempts = 0;
+    ResponseEntity<String> lastResponse = null;
+    // The limiter allows 8 attempts per 15 minutes per client; the 9th must be refused.
+    for (int i = 1; i <= 9; i++) {
+      lastResponse =
+          client.post(
+              "/api/v1/auth/register",
+              Map.of(
+                  "email",
+                  "rate-limit-register-" + i + "@example.com",
+                  "password",
+                  password,
+                  "displayName",
+                  "RL" + i));
+      client.clearCookies();
+      attempts++;
+      if (lastResponse.getStatusCode().value() == 429) {
+        break;
+      }
+    }
+    assertThat(attempts).isLessThanOrEqualTo(9);
+    assertThat(lastResponse.getStatusCode().value()).isEqualTo(429);
+    assertThat(lastResponse.getBody()).contains("RATE_LIMITED");
+  }
+
+  @Test
+  void emailVerificationIsRateLimited() {
+    ResponseEntity<String> lastResponse = null;
+    // The limiter allows 10 attempts per 15 minutes per client; the 11th must be refused, even
+    // though every token here is invalid (rate limiting applies before the token is checked).
+    for (int i = 1; i <= 11; i++) {
+      lastResponse =
+          client.post("/api/v1/auth/email/verify", Map.of("token", "not-a-real-token-" + i));
+      if (lastResponse.getStatusCode().value() == 429) {
+        break;
+      }
+      assertThat(lastResponse.getStatusCode().value()).isEqualTo(400);
+    }
+    assertThat(lastResponse.getStatusCode().value()).isEqualTo(429);
+    assertThat(lastResponse.getBody()).contains("RATE_LIMITED");
   }
 
   @Test

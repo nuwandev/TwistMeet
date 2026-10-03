@@ -6,6 +6,12 @@ export type UserView = {
   createdAt: string;
 };
 
+// Deliberately generic — identical whether or not the email was already registered.
+export type RegistrationAccepted = {
+  email: string;
+  message: string;
+};
+
 export type OrganizationView = {
   id: string;
   name: string;

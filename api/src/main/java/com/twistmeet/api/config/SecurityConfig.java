@@ -23,10 +23,12 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 /**
  * Staff authentication uses a server-side session behind a secure, HttpOnly, SameSite cookie (08
  * §API conventions default). CSRF protection is applied via the double-submit cookie pattern for
- * every mutating request except the credential-bootstrap endpoints (register/login/guest join),
- * which do not ride an existing session cookie and are instead protected by rate limiting. Guest
- * access (join codes, guest credential) is handled inside controllers, not Spring Security
- * principals, so those paths are left "permitAll" at this layer and authorized explicitly.
+ * every mutating request except the credential-bootstrap endpoints (register/login/email
+ * verification/guest join), which do not ride an existing session cookie — a user clicking a
+ * verification link from their email client, for instance, has no prior CSRF cookie to echo back —
+ * and are instead protected by rate limiting. Guest access (join codes, guest credential) is
+ * handled inside controllers, not Spring Security principals, so those paths are left "permitAll"
+ * at this layer and authorized explicitly.
  */
 @Configuration
 public class SecurityConfig {
@@ -62,7 +64,10 @@ public class SecurityConfig {
                 csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
                     .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                     .ignoringRequestMatchers(
-                        "/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/join/**"))
+                        "/api/v1/auth/register",
+                        "/api/v1/auth/login",
+                        "/api/v1/auth/email/verify",
+                        "/api/v1/join/**"))
         .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
         .sessionManagement(
             (SessionManagementConfigurer<HttpSecurity> sm) ->

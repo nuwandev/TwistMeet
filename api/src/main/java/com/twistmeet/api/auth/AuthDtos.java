@@ -19,6 +19,15 @@ public final class AuthDtos {
 
   public record VerifyEmailRequest(@NotBlank String token) {}
 
+  /**
+   * Response to {@code POST /auth/register}, deliberately identical whether or not the email was
+   * already registered (12 SP04 "generic errors avoid account enumeration"). It echoes back only
+   * the caller's own submitted email (not a leak — they already know it) and never includes account
+   * fields such as id/emailVerified/createdAt, which would otherwise differ between a brand-new
+   * account and a pre-existing one.
+   */
+  public record RegistrationAccepted(String email, String message) {}
+
   public record UserView(
       UUID id, String email, String displayName, boolean emailVerified, Instant createdAt) {
     public static UserView of(User user) {
