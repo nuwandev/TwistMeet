@@ -72,6 +72,13 @@ public final class ScrambleDtos {
    * reveal/official-view/current-scramble/print, each gated by its own server-side authorization
    * check — never by a list endpoint, never embedded in Attempt/Round/Event views, and never passed
    * to AuditService or a logger.
+   *
+   * <p>{@code toString()} is overridden to redact {@code notation}: Spring MVC's DEBUG-level
+   * request logging (e.g. {@code AbstractMessageConverterMethodProcessor} "Writing [...]") calls a
+   * response body's {@code toString()} verbatim, so the default record-generated {@code toString()}
+   * would otherwise put plaintext notation into logs the moment anyone ever raises that log level —
+   * found by {@code ScrambleSecurityGapTest}, fixed here rather than relying on every environment
+   * to keep DEBUG logging off forever.
    */
   public record RevealView(
       UUID assignmentId,
@@ -79,9 +86,30 @@ public final class ScrambleDtos {
       String puzzleType,
       UUID roundId,
       int attemptNumber,
-      Instant revealedAt) {}
+      Instant revealedAt) {
+    @Override
+    public String toString() {
+      return "RevealView[assignmentId="
+          + assignmentId
+          + ", notation=<redacted>, puzzleType="
+          + puzzleType
+          + ", roundId="
+          + roundId
+          + ", attemptNumber="
+          + attemptNumber
+          + ", revealedAt="
+          + revealedAt
+          + "]";
+    }
+  }
 
   public record SpoilRequest(@NotBlank @Size(max = 500) String reason) {}
 
-  public record PrintEntry(int attemptNumber, String notation) {}
+  /** See {@link RevealView}'s javadoc on the same {@code toString()} redaction rationale. */
+  public record PrintEntry(int attemptNumber, String notation) {
+    @Override
+    public String toString() {
+      return "PrintEntry[attemptNumber=" + attemptNumber + ", notation=<redacted>]";
+    }
+  }
 }

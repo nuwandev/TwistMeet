@@ -145,4 +145,37 @@ public abstract class AbstractIntegrationTest {
     apiClient.post("/api/v1/rounds/" + roundId + "/ready", null);
     apiClient.post("/api/v1/rounds/" + roundId + "/start", null);
   }
+
+  /** Like {@link #createRound} but also sets advancement rule/value, for M5 advancement tests. */
+  protected String createRoundWithAdvancement(
+      TestApiClient apiClient,
+      String eventId,
+      int order,
+      String name,
+      String format,
+      String advancementRule,
+      Integer advancementValue) {
+    java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+    body.put("order", order);
+    body.put("name", name);
+    body.put("format", format);
+    body.put("advancementRule", advancementRule);
+    if (advancementValue != null) {
+      body.put("advancementValue", advancementValue);
+    }
+    ResponseEntity<String> response = apiClient.post("/api/v1/events/" + eventId + "/rounds", body);
+    return json(response).get("id").asText();
+  }
+
+  /** Records an OK judge result for an attempt at its current version, returning that version. */
+  protected void judgeOk(TestApiClient apiClient, String attemptId, long rawTimeMs) {
+    long version = currentAttemptVersion(apiClient, attemptId);
+    apiClient.put(
+        "/api/v1/attempts/" + attemptId + "/judge-result",
+        java.util.Map.of("status", "OK", "rawTimeMs", rawTimeMs, "expectedVersion", version));
+  }
+
+  protected long currentAttemptVersion(TestApiClient apiClient, String attemptId) {
+    return json(apiClient.get("/api/v1/attempts/" + attemptId)).get("version").asLong();
+  }
 }
