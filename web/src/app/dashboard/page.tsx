@@ -33,15 +33,16 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount
     loadOrgs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedOrgId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-change
       loadEvents(selectedOrgId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedOrgId]);
 
   async function handleCreateOrg(e: React.FormEvent<HTMLFormElement>) {
