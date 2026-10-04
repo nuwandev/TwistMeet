@@ -5,14 +5,32 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
 import { EntrantView, EventView, RoundFormat, RoundView } from "@/lib/types";
+import {
+  ConfirmDialog,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  OfflineState,
+  RoleBanner,
+  StatusBadge,
+  useOnlineStatus,
+} from "@/components/common";
+
+type PendingConfirm =
+  | { kind: "remove"; entrantId: string; name: string }
+  | { kind: "withdraw"; entrantId: string; name: string }
+  | { kind: "open-registration" }
+  | null;
 
 export default function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>();
+  const online = useOnlineStatus();
   const [event, setEvent] = useState<EventView | null>(null);
   const [entrants, setEntrants] = useState<EntrantView[] | null>(null);
   const [rounds, setRounds] = useState<RoundView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState<PendingConfirm>(null);
 
   async function load() {
     try {
@@ -22,6 +40,7 @@ export default function EventDetailPage() {
       setEntrants(roster);
       const roundList = await apiFetch<RoundView[]>(`/api/v1/events/${eventId}/rounds`);
       setRounds(roundList);
+      setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load event");
     }
@@ -71,7 +90,7 @@ export default function EventDetailPage() {
   if (error && !event) {
     return (
       <main style={{ maxWidth: 640, margin: "0 auto", padding: "var(--space-4) var(--space-2)" }}>
-        <p className="error-text">{error}</p>
+        <ErrorState message={error} onRetry={load} />
       </main>
     );
   }
@@ -79,7 +98,7 @@ export default function EventDetailPage() {
   if (!event) {
     return (
       <main style={{ maxWidth: 640, margin: "0 auto", padding: "var(--space-4) var(--space-2)" }}>
-        <p>Loading…</p>
+        <LoadingState label="Loading event…" />
       </main>
     );
   }
@@ -88,16 +107,26 @@ export default function EventDetailPage() {
     event.joinCode && typeof window !== "undefined"
       ? `${window.location.origin}/join/${event.joinCode}`
       : null;
+  const liveRoundExists = rounds?.some((r) => r.state === "LIVE") ?? false;
 
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: "var(--space-4) var(--space-2)" }}>
+      <RoleBanner eventId={eventId} />
       <h1>{event.name}</h1>
       <p>
-        <span className="status-badge">{event.state}</span>{" "}
-        <span className="status-badge">
+        <StatusBadge tone="neutral">{event.state}</StatusBadge>{" "}
+        <StatusBadge tone="neutral">
           {event.timerMode === "PHYSICAL_JUDGE" ? "Judge recorded · physical timer" : "Self-timed · device/browser timing"}
-        </span>
+        </StatusBadge>
+        {liveRoundExists && (
+          <>
+            {" "}
+            <Link href={`/events/${eventId}/control`}>Tournament Control</Link>
+          </>
+        )}
       </p>
+      {!online && <OfflineState onRetry={load} />}
+      {error && <ErrorState message={error} onRetry={load} />}
 
       <section className="card" style={{ marginBottom: "var(--space-3)" }}>
         <h2>Registration</h2>
@@ -113,7 +142,7 @@ export default function EventDetailPage() {
           </p>
         )}
         <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
-          <button className="button-primary" disabled={busy || event.state !== "DRAFT"} onClick={() => runAction(`/api/v1/events/${eventId}/registration/open`)}>
+          <button className="button-primary" disabled={busy || event.state !== "DRAFT"} onClick={() => setConfirm({ kind: "open-registration" })}>
             Open registration
           </button>
           <button className="button-primary" disabled={busy || event.state !== "REGISTRATION_OPEN"} onClick={() => runAction(`/api/v1/events/${eventId}/registration/lock`)}>
@@ -166,14 +195,14 @@ export default function EventDetailPage() {
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() => runAction(`/api/v1/events/${eventId}/entrants/${entrant.id}/withdraw`)}
+                          onClick={() => setConfirm({ kind: "withdraw", entrantId: entrant.id, name: entrant.displayName })}
                         >
                           Withdraw
                         </button>
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={() => runAction(`/api/v1/events/${eventId}/entrants/${entrant.id}`, "DELETE")}
+                          onClick={() => setConfirm({ kind: "remove", entrantId: entrant.id, name: entrant.displayName })}
                         >
                           Remove
                         </button>
@@ -185,7 +214,7 @@ export default function EventDetailPage() {
             </tbody>
           </table>
         ) : (
-          <p>No one has joined yet.</p>
+          <EmptyState title="No one has joined yet." />
         )}
         <form onSubmit={handleAddEntrant} style={{ display: "flex", gap: "var(--space-1)", marginTop: "var(--space-2)" }}>
           <input className="field-input" name="displayName" placeholder="Display name" required minLength={1} maxLength={32} />
@@ -205,9 +234,9 @@ export default function EventDetailPage() {
                   <strong>
                     {round.order}. {round.name}
                   </strong>{" "}
-                  <span className="status-badge">{round.format}</span>{" "}
-                  <span className="status-badge">{round.state}</span>
-                  {round.paused && <span className="status-badge">PAUSED</span>}
+                  <StatusBadge tone="neutral">{round.format}</StatusBadge>{" "}
+                  <StatusBadge tone={round.state === "LIVE" ? "good" : "neutral"}>{round.state}</StatusBadge>
+                  {round.paused && <StatusBadge tone="warn">PAUSED</StatusBadge>}
                 </p>
                 <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
                   {round.state === "DRAFT" && (
@@ -226,16 +255,7 @@ export default function EventDetailPage() {
                     </button>
                   )}
                   {round.state === "LIVE" && (
-                    <>
-                      <Link href={`/rounds/${round.id}/judge`}>Judge entry</Link>
-                      <Link href={`/rounds/${round.id}/standings`}>Standings</Link>
-                      <button disabled={busy} onClick={() => runAction(`/api/v1/rounds/${round.id}/pause`)}>
-                        {round.paused ? "Resume" : "Pause new starts"}
-                      </button>
-                      <button disabled={busy} onClick={() => runAction(`/api/v1/rounds/${round.id}/review`)}>
-                        Enter review
-                      </button>
-                    </>
+                    <Link href={`/events/${eventId}/control`}>Tournament Control</Link>
                   )}
                   {round.state === "REVIEW" && (
                     <>
@@ -252,7 +272,7 @@ export default function EventDetailPage() {
             ))}
           </ul>
         ) : (
-          <p>No rounds configured yet.</p>
+          <EmptyState title="No rounds configured yet." />
         )}
         <form onSubmit={handleCreateRound} style={{ display: "flex", gap: "var(--space-1)", marginTop: "var(--space-2)", flexWrap: "wrap" }}>
           <input className="field-input" name="name" placeholder="Round name" required minLength={1} maxLength={80} defaultValue="Final" />
@@ -269,7 +289,48 @@ export default function EventDetailPage() {
         </form>
       </section>
 
-      {error && <p className="error-text" style={{ marginTop: "var(--space-2)" }}>{error}</p>}
+      <ConfirmDialog
+        open={confirm?.kind === "open-registration"}
+        title="Open registration"
+        summary="Competitors will be able to join with the event's join code once registration opens. You can lock registration again later."
+        confirmLabel="Open registration"
+        busy={busy}
+        onConfirm={() => {
+          setConfirm(null);
+          runAction(`/api/v1/events/${eventId}/registration/open`);
+        }}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm?.kind === "withdraw"}
+        title="Withdraw entrant"
+        summary={confirm?.kind === "withdraw" ? `${confirm.name} will be marked withdrawn. Their existing results and audit history are preserved.` : null}
+        confirmLabel="Withdraw entrant"
+        busy={busy}
+        onConfirm={() => {
+          if (confirm?.kind === "withdraw") {
+            const { entrantId } = confirm;
+            setConfirm(null);
+            runAction(`/api/v1/events/${eventId}/entrants/${entrantId}/withdraw`);
+          }
+        }}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm?.kind === "remove"}
+        title="Remove entrant"
+        summary={confirm?.kind === "remove" ? `${confirm.name} will be permanently removed from the roster. This only works before any attempt exists for them — if any exist, withdraw instead.` : null}
+        confirmLabel="Remove entrant"
+        busy={busy}
+        onConfirm={() => {
+          if (confirm?.kind === "remove") {
+            const { entrantId } = confirm;
+            setConfirm(null);
+            runAction(`/api/v1/events/${eventId}/entrants/${entrantId}`, "DELETE");
+          }
+        }}
+        onCancel={() => setConfirm(null)}
+      />
     </main>
   );
 }
