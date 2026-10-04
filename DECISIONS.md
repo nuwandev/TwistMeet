@@ -1095,9 +1095,8 @@ this pass: no license or generator change was made, and no legal-approval claim 
 ### GET /events/{eventId}/audit
 
 Exposes the `AuditEvent` rows every milestone since M1 has recorded via `AuditService` but never
-had a read endpoint for. Organizer-only, matching `08`'s "owner/organizer restricted." No dedicated
-authorization test was added for this one small addition specifically — see "remaining gaps" in
-the M5 completion report.
+had a read endpoint for. Organizer-only, matching `08`'s "owner/organizer restricted." Tested in
+`HistoryExportFlowTest.auditEndpointIsOrganizerOnlyAndListsRecordedActions`.
 
 ## Deviations from documents
 

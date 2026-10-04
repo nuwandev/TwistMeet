@@ -106,6 +106,28 @@ class HistoryExportFlowTest extends AbstractIntegrationTest {
   }
 
   @Test
+  void auditEndpointIsOrganizerOnlyAndListsRecordedActions() throws Exception {
+    String orgId = registerVerifyAndCreateOrg(client, "hist6@example.com", "Owner6", "Hist Org 6");
+    String eventId = createEvent(client, orgId, "Hist Event 6", "PHYSICAL_JUDGE");
+    client.post("/api/v1/events/" + eventId + "/registration/open", null);
+
+    ResponseEntity<String> ownerAudit = client.get("/api/v1/events/" + eventId + "/audit");
+    assertThat(ownerAudit.getStatusCode().value()).isEqualTo(200);
+    JsonNode entries = json(ownerAudit);
+    assertThat(entries.size()).isGreaterThanOrEqualTo(2); // EVENT_CREATED, REGISTRATION_OPENED
+    boolean hasEventCreated = false;
+    for (JsonNode e : entries) {
+      if ("EVENT_CREATED".equals(e.get("action").asText())) hasEventCreated = true;
+    }
+    assertThat(hasEventCreated).isTrue();
+
+    TestApiClient stranger = new TestApiClient(restTemplate);
+    registerAndVerify(stranger, "hist6stranger@example.com", "Stranger6", "correct-horse-battery");
+    ResponseEntity<String> strangerAudit = stranger.get("/api/v1/events/" + eventId + "/audit");
+    assertThat(strangerAudit.getStatusCode().value()).isEqualTo(404);
+  }
+
+  @Test
   void csvSanitizesFormulaInjectionInDisplayNames() throws Exception {
     String orgId = registerVerifyAndCreateOrg(client, "hist5@example.com", "Owner5", "Hist Org 5");
     String eventId = createEvent(client, orgId, "Hist Event 5", "PHYSICAL_JUDGE");
