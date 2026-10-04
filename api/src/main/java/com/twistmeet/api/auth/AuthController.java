@@ -12,6 +12,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,7 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
   private final UserRepository userRepository;
-  private final EmailVerificationTokenRepository tokenRepository;
+  private final PendingRegistrationRepository pendingRegistrationRepository;
   private final PasswordEncoder passwordEncoder;
   private final AuthenticationManager authenticationManager;
   private final MailService mailService;
@@ -45,14 +46,14 @@ public class AuthController {
 
   public AuthController(
       UserRepository userRepository,
-      EmailVerificationTokenRepository tokenRepository,
+      PendingRegistrationRepository pendingRegistrationRepository,
       PasswordEncoder passwordEncoder,
       AuthenticationManager authenticationManager,
       MailService mailService,
       SimpleRateLimiter rateLimiter,
       Environment env) {
     this.userRepository = userRepository;
-    this.tokenRepository = tokenRepository;
+    this.pendingRegistrationRepository = pendingRegistrationRepository;
     this.passwordEncoder = passwordEncoder;
     this.authenticationManager = authenticationManager;
     this.mailService = mailService;
@@ -60,6 +61,25 @@ public class AuthController {
     this.webBaseUrl = env.getProperty("twistmeet.web.base-url", "http://localhost:3000");
   }
 
+  /**
+   * Double opt-in, and deliberately takes no password. M1 follow-up review finding: a single- step
+   * register(email, password) immediately created a logged-in-capable (if unverified) account,
+   * which let a caller distinguish a brand-new email from an already-registered one — either by the
+   * old 201-vs-409 response, or (after that was fixed) by the fact that an unverified account the
+   * caller just created could still log in while an existing account with a different password
+   * could not. Both gaps share one root cause: a {@link User} row, with a caller-supplied password,
+   * existed before anyone proved they control the mailbox.
+   *
+   * <p>Fix: nothing here ever creates a {@link User}. A fresh email is recorded only as a {@link
+   * PendingRegistration} (no password) and a verification link is emailed; the account — and its
+   * password — is created only in {@link #verifyEmail}, where the password is supplied by whoever
+   * is completing the request at that moment, i.e. whoever clicked the link. This also closes the
+   * specific hijack this review called out: an attacker who registers a victim's email can choose a
+   * display name, but can never choose the account's password, because registration no longer
+   * accepts one. If the victim later clicks any link for that address — including one the attacker
+   * triggered — they are the one typing a password into the form that calls {@link #verifyEmail},
+   * so they are the one who ends up controlling the account.
+   */
   @PostMapping("/register")
   public ResponseEntity<AuthDtos.RegistrationAccepted> register(
       @Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
@@ -69,31 +89,43 @@ public class AuthController {
     }
 
     String email = request.email().trim().toLowerCase();
-    // Review finding: registration previously returned 409 EMAIL_IN_USE for an existing email
-    // and 201 with the new account otherwise — two different statuses and bodies that let a
-    // caller enumerate which emails are already registered (12 SP04 "generic errors avoid
-    // account enumeration"). Both branches below now produce the exact same status and body.
-    //
-    // This always hashes the submitted password regardless of which branch runs below, so an
-    // attacker can't distinguish the branches by the single cheapest tell (skipping bcrypt
-    // entirely on the existing-email path). It does NOT make the two branches equal-time: the
-    // new-account path also inserts two rows and calls MailService, so overall response time
-    // still differs and could in principle be used to infer existence. Closing that gap for
-    // real needs a constant-time design (e.g. always doing an equivalent amount of DB/mail work,
-    // or queuing the email send asynchronously so it can't affect the response at all) that is
-    // not implemented or measured here — do not describe this endpoint as constant-time.
-    String passwordHash = passwordEncoder.encode(request.password());
     if (!userRepository.existsByEmail(email)) {
-      User user = userRepository.save(new User(email, passwordHash, request.displayName()));
+      // A second, independent limit on the target address (not the caller's IP): this is what
+      // actually bounds how many verification emails a victim's inbox can be made to receive,
+      // regardless of how many different IPs an attacker spreads requests across. It only ever
+      // affects whether an email gets sent, never the response below, so it adds no new
+      // enumeration signal (see the "both branches identical" note below).
+      boolean withinSendQuota =
+          rateLimiter.tryAcquire("register-email:" + email, 5, Duration.ofHours(1));
+
       String rawToken = SecretTokens.newOpaqueToken();
-      tokenRepository.save(
-          new EmailVerificationToken(
-              user.getId(),
-              SecretTokens.sha256Hex(rawToken),
-              Instant.now().plus(Duration.ofDays(1))));
-      mailService.sendVerificationEmail(
-          user.getEmail(), webBaseUrl + "/verify-email?token=" + rawToken);
+      String tokenHash = SecretTokens.sha256Hex(rawToken);
+      Instant expiresAt = Instant.now().plus(Duration.ofHours(24));
+      pendingRegistrationRepository
+          .findByEmail(email)
+          .ifPresentOrElse(
+              existing -> {
+                // A second request for the same still-pending address replaces the claim: fresh
+                // token, any earlier outstanding link for this address stops working. This is
+                // safe precisely because no password lives here yet — overwriting only changes
+                // who gets to type a password in next, never hands anyone else's password to a
+                // new claimant (contrast with a verified User, whose password this endpoint
+                // never touches, per the class comment below on that invariant).
+                existing.reissue(request.displayName(), tokenHash, expiresAt);
+                pendingRegistrationRepository.save(existing);
+              },
+              () ->
+                  pendingRegistrationRepository.save(
+                      new PendingRegistration(email, request.displayName(), tokenHash, expiresAt)));
+
+      if (withinSendQuota) {
+        mailService.sendVerificationEmail(email, webBaseUrl + "/verify-email?token=" + rawToken);
+      }
     }
+    // If a verified account already exists, do nothing: registration must never overwrite an
+    // existing account's password, and this endpoint has no password to overwrite it with
+    // anyway. Falling through to the identical response below is what keeps this branch
+    // unobservable from the outside.
 
     return ResponseEntity.status(HttpStatus.ACCEPTED)
         .body(
@@ -102,32 +134,70 @@ public class AuthController {
                 "If this email can be registered, check your inbox for a verification link."));
   }
 
+  /**
+   * Confirms mailbox control and creates the account in one step, with the password supplied here —
+   * not at {@link #register} — by whoever is submitting this request. See the class comment on
+   * {@link #register} for why. Logs the caller in immediately: completing this request already
+   * proves both mailbox control (the token) and authorship of the password (it was typed into this
+   * exact call), which is everything {@code /auth/login} would otherwise check.
+   */
   @PostMapping("/email/verify")
-  public ResponseEntity<Void> verifyEmail(
-      @Valid @RequestBody VerifyEmailRequest request, HttpServletRequest httpRequest) {
+  public ResponseEntity<UserView> verifyEmail(
+      @Valid @RequestBody VerifyEmailRequest request,
+      HttpServletRequest httpRequest,
+      HttpServletResponse httpResponse) {
     String rateLimitKey = "verify-email:" + httpRequest.getRemoteAddr();
     if (!rateLimiter.tryAcquire(rateLimitKey, 10, Duration.ofMinutes(15))) {
       throw ApiException.rateLimited("Too many verification attempts, try again later");
     }
 
     String hash = SecretTokens.sha256Hex(request.token());
-    EmailVerificationToken token =
-        tokenRepository
+    PendingRegistration pending =
+        pendingRegistrationRepository
             .findByTokenHash(hash)
-            .filter(t -> t.isUsable(Instant.now()))
+            .filter(p -> !p.isExpired(Instant.now()))
             .orElseThrow(
                 () ->
                     ApiException.badRequest(
                         "TOKEN_INVALID", "Verification link is invalid or expired"));
+
+    if (userRepository.existsByEmail(pending.getEmail())) {
+      // Someone else already completed verification for this address (e.g. two tabs racing on
+      // the same link) between this token being issued and now. Never overwrite the account
+      // that won that race; this token is spent either way.
+      pendingRegistrationRepository.delete(pending);
+      throw ApiException.badRequest("TOKEN_INVALID", "Verification link is invalid or expired");
+    }
+
     User user =
-        userRepository
-            .findById(token.getUserId())
-            .orElseThrow(() -> ApiException.notFound("User not found"));
+        userRepository.save(
+            new User(
+                pending.getEmail(),
+                passwordEncoder.encode(request.password()),
+                pending.getDisplayName()));
     user.markEmailVerified();
-    userRepository.save(user);
-    token.markUsed();
-    tokenRepository.save(token);
-    return ResponseEntity.noContent().build();
+    user = userRepository.save(user);
+    pendingRegistrationRepository.delete(pending);
+
+    // Completing this request already proved mailbox control (the token) and authorship of the
+    // password (typed into this exact call) — exactly what login's AuthenticationManager would
+    // otherwise check — so build the authenticated context directly rather than looping back
+    // through a second credential check.
+    Authentication authentication =
+        new UsernamePasswordAuthenticationToken(new AppUserPrincipal(user), null, List.of());
+    establishSession(authentication, httpRequest, httpResponse);
+
+    return ResponseEntity.ok(UserView.of(user));
+  }
+
+  private void establishSession(
+      Authentication authentication,
+      HttpServletRequest httpRequest,
+      HttpServletResponse httpResponse) {
+    SecurityContext context = SecurityContextHolder.createEmptyContext();
+    context.setAuthentication(authentication);
+    SecurityContextHolder.setContext(context);
+    securityContextRepository.saveContext(context, httpRequest, httpResponse);
   }
 
   @PostMapping("/login")
@@ -152,10 +222,7 @@ public class AuthController {
           HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid email or password");
     }
 
-    SecurityContext context = SecurityContextHolder.createEmptyContext();
-    context.setAuthentication(authentication);
-    SecurityContextHolder.setContext(context);
-    securityContextRepository.saveContext(context, httpRequest, httpResponse);
+    establishSession(authentication, httpRequest, httpResponse);
 
     AppUserPrincipal principal = (AppUserPrincipal) authentication.getPrincipal();
     User user =

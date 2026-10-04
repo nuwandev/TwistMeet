@@ -75,11 +75,7 @@ class CrossTenantAccessTest extends AbstractIntegrationTest {
 
   private String registerLoginAndCreateOrg(
       TestApiClient apiClient, String email, String displayName, String orgName) throws Exception {
-    apiClient.post(
-        "/api/v1/auth/register",
-        Map.of("email", email, "password", "correct-horse-battery", "displayName", displayName));
-    apiClient.post(
-        "/api/v1/auth/login", Map.of("email", email, "password", "correct-horse-battery"));
+    registerAndVerify(apiClient, email, displayName, "correct-horse-battery");
     ResponseEntity<String> orgResponse =
         apiClient.post(
             "/api/v1/organizations",

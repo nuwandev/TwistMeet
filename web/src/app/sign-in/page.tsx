@@ -13,32 +13,53 @@ export default function SignInPage() {
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [registered, setRegistered] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      if (mode === "register") {
-        // The response is deliberately generic (same for a brand-new or already-registered
-        // email — see DECISIONS.md) and doesn't tell us whether this created an account, so we
-        // always just continue straight to login with the same credentials.
-        await apiFetch<RegistrationAccepted>("/api/v1/auth/register", {
-          method: "POST",
-          body: { email, password, displayName },
-        });
-      }
-      await apiFetch<UserView>("/api/v1/auth/login", {
-        method: "POST",
-        body: { email, password },
-      });
+      await apiFetch<UserView>("/api/v1/auth/login", { method: "POST", body: { email, password } });
       router.push("/dashboard");
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Something went wrong";
-      setError(message);
+      setError(err instanceof ApiError ? err.message : "Something went wrong");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      // No password here, and no auto-login: an account does not exist yet, and this response
+      // is deliberately identical whether or not the email is already registered (see
+      // DECISIONS.md). The password is set on the link in the email, not here.
+      await apiFetch<RegistrationAccepted>("/api/v1/auth/register", {
+        method: "POST",
+        body: { email, displayName },
+      });
+      setRegistered(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (registered) {
+    return (
+      <main style={{ maxWidth: 420, margin: "0 auto", padding: "var(--space-4) var(--space-2)" }}>
+        <h1>Check your email</h1>
+        <p>
+          If <strong>{email}</strong> can be registered, we&apos;ve sent a link to confirm it and
+          set your password. Nobody — including whoever submitted this form, if that wasn&apos;t
+          you — can access an account at this address until that link is used.
+        </p>
+      </main>
+    );
   }
 
   return (
@@ -52,8 +73,30 @@ export default function SignInPage() {
           Create account
         </button>
       </div>
-      <form onSubmit={handleSubmit} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-        {mode === "register" && (
+
+      {mode === "login" ? (
+        <form onSubmit={handleLogin} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+          <label>
+            Email
+            <input className="field-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </label>
+          <label>
+            Password
+            <input
+              className="field-input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </label>
+          {error && <p className="error-text">{error}</p>}
+          <button className="button-primary" type="submit" disabled={busy}>
+            Sign in
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={handleRegister} className="card" style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
           <label>
             Display name
             <input
@@ -64,33 +107,20 @@ export default function SignInPage() {
               maxLength={120}
             />
           </label>
-        )}
-        <label>
-          Email
-          <input
-            className="field-input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </label>
-        <label>
-          Password
-          <input
-            className="field-input"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={10}
-          />
-        </label>
-        {error && <p className="error-text">{error}</p>}
-        <button className="button-primary" type="submit" disabled={busy}>
-          {mode === "register" ? "Create account and sign in" : "Sign in"}
-        </button>
-      </form>
+          <label>
+            Email
+            <input className="field-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </label>
+          <p style={{ fontSize: 14 }}>
+            You&apos;ll choose your password after confirming this email address — we&apos;ll
+            send a link.
+          </p>
+          {error && <p className="error-text">{error}</p>}
+          <button className="button-primary" type="submit" disabled={busy}>
+            Send verification link
+          </button>
+        </form>
+      )}
     </main>
   );
 }

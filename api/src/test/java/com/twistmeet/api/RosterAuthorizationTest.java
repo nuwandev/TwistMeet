@@ -19,18 +19,7 @@ class RosterAuthorizationTest extends AbstractIntegrationTest {
   @Test
   void onlyOrganizationStaffCanReadTheRoster() throws Exception {
     TestApiClient organizer = client;
-    organizer.post(
-        "/api/v1/auth/register",
-        Map.of(
-            "email",
-            "roster-owner@example.com",
-            "password",
-            "correct-horse-battery",
-            "displayName",
-            "Owner"));
-    organizer.post(
-        "/api/v1/auth/login",
-        Map.of("email", "roster-owner@example.com", "password", "correct-horse-battery"));
+    registerAndVerify(organizer, "roster-owner@example.com", "Owner", "correct-horse-battery");
     ResponseEntity<String> orgResponse =
         organizer.post(
             "/api/v1/organizations",
@@ -66,18 +55,7 @@ class RosterAuthorizationTest extends AbstractIntegrationTest {
 
     // A staff user who is not a member of this organization cannot read the roster either.
     TestApiClient outsider = new TestApiClient(restTemplate);
-    outsider.post(
-        "/api/v1/auth/register",
-        Map.of(
-            "email",
-            "roster-outsider@example.com",
-            "password",
-            "correct-horse-battery",
-            "displayName",
-            "Outsider"));
-    outsider.post(
-        "/api/v1/auth/login",
-        Map.of("email", "roster-outsider@example.com", "password", "correct-horse-battery"));
+    registerAndVerify(outsider, "roster-outsider@example.com", "Outsider", "correct-horse-battery");
     ResponseEntity<String> rosterAsOutsider =
         outsider.get("/api/v1/events/" + eventId + "/entrants");
     assertThat(rosterAsOutsider.getStatusCode().value()).isEqualTo(404);

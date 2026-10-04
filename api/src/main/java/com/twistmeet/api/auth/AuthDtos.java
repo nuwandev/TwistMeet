@@ -10,14 +10,18 @@ public final class AuthDtos {
 
   private AuthDtos() {}
 
+  /**
+   * No password here by design: see {@code AuthController#register} for why the password is chosen
+   * only at verification time, by whoever controls the mailbox, not by whoever submits this
+   * request.
+   */
   public record RegisterRequest(
-      @NotBlank @Email String email,
-      @NotBlank @Size(min = 10, max = 200) String password,
-      @NotBlank @Size(min = 1, max = 120) String displayName) {}
+      @NotBlank @Email String email, @NotBlank @Size(min = 1, max = 120) String displayName) {}
 
   public record LoginRequest(@NotBlank @Email String email, @NotBlank String password) {}
 
-  public record VerifyEmailRequest(@NotBlank String token) {}
+  public record VerifyEmailRequest(
+      @NotBlank String token, @NotBlank @Size(min = 10, max = 200) String password) {}
 
   /**
    * Response to {@code POST /auth/register}, deliberately identical whether or not the email was

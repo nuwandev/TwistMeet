@@ -1,11 +1,13 @@
 package com.twistmeet.api.support;
 
 import com.twistmeet.api.common.SimpleRateLimiter;
+import java.util.Map;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
@@ -27,6 +29,7 @@ public abstract class AbstractIntegrationTest {
   @Autowired protected TestRestTemplate restTemplate;
   @Autowired protected Flyway flyway;
   @Autowired protected SimpleRateLimiter rateLimiter;
+  @Autowired protected CapturingMailService capturingMailService;
 
   protected TestApiClient client;
 
@@ -35,6 +38,28 @@ public abstract class AbstractIntegrationTest {
     flyway.clean();
     flyway.migrate();
     rateLimiter.clearAll();
+    capturingMailService.clearAll();
     client = new TestApiClient(restTemplate);
+  }
+
+  /**
+   * Drives the full double-opt-in flow (register, read the token back out of the captured email,
+   * verify-with-password) and leaves {@code apiClient} holding an authenticated session, exactly as
+   * a real user clicking the emailed link and setting a password would end up. This is the standard
+   * way every test gets a logged-in staff session — there is no faster path, by design: see {@code
+   * AuthController#register}'s class comment.
+   */
+  protected ResponseEntity<String> registerAndVerify(
+      TestApiClient apiClient, String email, String displayName, String password) {
+    // AuthController normalizes the email to lowercase before storing/sending; look it up the
+    // same way so a mixed-case email in a test doesn't miss the captured message.
+    String normalizedEmail = email.trim().toLowerCase();
+    apiClient.post("/api/v1/auth/register", Map.of("email", email, "displayName", displayName));
+    String token = capturingMailService.latestTokenFor(normalizedEmail);
+    if (token == null) {
+      throw new IllegalStateException("No verification email was captured for " + normalizedEmail);
+    }
+    return apiClient.post(
+        "/api/v1/auth/email/verify", Map.of("token", token, "password", password));
   }
 }
