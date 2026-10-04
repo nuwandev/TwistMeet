@@ -126,3 +126,88 @@ select {
   border: 1px solid var(--color-border);
   font-size: 14px;
 }
+
+.status-badge-good {
+  color: var(--color-mint);
+  border-color: var(--color-mint);
+}
+
+.status-badge-warn {
+  color: var(--color-amber);
+  border-color: var(--color-amber);
+}
+
+.status-badge-bad {
+  color: var(--color-red);
+  border-color: var(--color-red);
+}
+
+.saved-state {
+  font-size: 14px;
+  color: var(--color-body-text);
+}
+
+.saved-state-error {
+  color: var(--color-red);
+}
+
+.state-block {
+  padding: var(--space-2);
+  text-align: center;
+}
+
+.empty-state,
+.error-state,
+.offline-state {
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.role-banner {
+  margin: 0 0 var(--space-1) 0;
+}
+
+.confirm-dialog {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  max-width: 420px;
+  background: var(--color-surface);
+  color: var(--color-body-text);
+}
+
+.confirm-dialog::backdrop {
+  background: rgba(20, 35, 59, 0.4);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* 07: "focus visibility" — a visible, non-color-only focus ring on every interactive element. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 3px solid var(--color-blue);
+  outline-offset: 2px;
+}
+
+.field-label {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -58,6 +58,8 @@ export type EntrantView = {
   version: number;
 };
 
+export type MyRole = "OWNER" | "ORGANIZER" | "JUDGE";
+
 export type JoinResponse = {
   eventId: string;
   eventName: string;
@@ -82,6 +84,7 @@ export type RoundView = {
   paused: boolean;
   rulesetVersion: string;
   createdAt: string;
+  startedAt: string | null;
   version: number;
 };
 
