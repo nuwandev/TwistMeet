@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
-import { AttemptView, CorrectionCategory, CorrectionView, EntrantView } from "@/lib/types";
+import { AttemptView, CorrectionCategory, CorrectionView, EntrantView, ScrambleRevealView } from "@/lib/types";
 import {
   ErrorState,
   LiveAnnouncer,
@@ -12,6 +12,40 @@ import {
   StatusBadge,
   useOnlineStatus,
 } from "@/components/common";
+import { TwistyGuide } from "@/components/TwistyGuide";
+
+/**
+ * 00 §7.2 self-scramble mode: shown only once this attempt is "unlocked" (the server re-checks
+ * that independently of anything this component does). A 403 here just means either this event
+ * doesn't use self-scramble, or this attempt isn't unlocked yet — both render nothing, since a
+ * judge-mode or not-yet-current attempt simply has no self-scramble to show.
+ */
+function SelfScrambleReveal({ attemptId }: { attemptId: string }) {
+  const [reveal, setReveal] = useState<ScrambleRevealView | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<ScrambleRevealView>(`/api/v1/attempts/${attemptId}/current-scramble`)
+      .then((data) => {
+        if (!cancelled) setReveal(data);
+      })
+      .catch(() => {
+        /* not self-scramble mode, or not unlocked yet — nothing to show */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attemptId]);
+
+  if (!reveal) return null;
+  return (
+    <div className="card" style={{ marginBottom: "var(--space-1)" }}>
+      <p className="status-badge">Self-scrambled · apply this before starting your timer</p>
+      <p className="tabular">{reveal.notation}</p>
+      <TwistyGuide alg={reveal.notation} label="Your scramble" />
+    </div>
+  );
+}
 
 type CorrectionDraft = { category: CorrectionCategory; note: string };
 type Confirmation = { attemptId: string; correctionId: string };
@@ -205,9 +239,12 @@ export default function WaitingRoomPage() {
                 ) : (
                   <>
                     {attempt.state === "PENDING" && (
-                      <button className="button-primary" disabled={busy} onClick={() => startAttempt(attempt)}>
-                        Ready — start timer
-                      </button>
+                      <>
+                        <SelfScrambleReveal attemptId={attempt.id} />
+                        <button className="button-primary" disabled={busy} onClick={() => startAttempt(attempt)}>
+                          Ready — start timer
+                        </button>
+                      </>
                     )}
                     {attempt.state === "RUNNING" && (
                       <button className="button-primary" disabled={busy} onClick={() => stopAttempt(attempt)}>

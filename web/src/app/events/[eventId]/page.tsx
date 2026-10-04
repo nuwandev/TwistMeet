@@ -254,6 +254,9 @@ export default function EventDetailPage() {
                       Start round
                     </button>
                   )}
+                  {(round.state === "PREPARING" || round.state === "READY" || round.state === "LIVE") && (
+                    <Link href={`/rounds/${round.id}/scramble`}>Scramble station</Link>
+                  )}
                   {round.state === "LIVE" && (
                     <Link href={`/events/${eventId}/control`}>Tournament Control</Link>
                   )}

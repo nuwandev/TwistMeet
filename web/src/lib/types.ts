@@ -158,6 +158,46 @@ export type EntrantStanding = {
   discardedAttemptNumbers: number[];
 };
 
+export type ScrambleAssignmentState = "ASSIGNED" | "REVEALED" | "APPLIED" | "CHECKED" | "VOIDED";
+
+export type ScrambleBatchView = {
+  id: string;
+  roundId: string;
+  puzzleType: string;
+  generatorName: string;
+  generatorVersion: string;
+  rulesetVersion: string;
+  attemptCount: number;
+  extraCount: number;
+  createdAt: string;
+};
+
+export type ScrambleAssignmentView = {
+  id: string;
+  roundId: string;
+  attemptId: string;
+  attemptNumber: number;
+  state: ScrambleAssignmentState;
+  revealedAt: string | null;
+  appliedAt: string | null;
+  appliedBy: string | null;
+  checkedAt: string | null;
+  checkedBy: string | null;
+  secondCheckedAt: string | null;
+  secondCheckedBy: string | null;
+  version: number;
+};
+
+/** Only ever returned by reveal/official-view/current-scramble/print — never by a list endpoint. */
+export type ScrambleRevealView = {
+  assignmentId: string;
+  notation: string;
+  puzzleType: string;
+  roundId: string;
+  attemptNumber: number;
+  revealedAt: string;
+};
+
 export type StandingsView = {
   roundId: string;
   provisional: boolean;

@@ -171,6 +171,7 @@ export default function TournamentControlPage() {
             {liveRound.paused ? "Resume new starts" : "Pause new starts"}
           </button>
           <Link href={`/rounds/${liveRound.id}/judge`}>Open judge entry</Link>
+          <Link href={`/rounds/${liveRound.id}/scramble`}>Scramble station</Link>
           <Link href={`/events/${eventId}/corrections`}>Resolve requests ({helpRequested})</Link>
           <button
             className="button-primary"
