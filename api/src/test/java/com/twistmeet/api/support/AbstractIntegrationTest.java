@@ -102,6 +102,23 @@ public abstract class AbstractIntegrationTest {
     return json(created).get("id").asText();
   }
 
+  /** Same as {@link #createEvent}, also setting an explicit scramble policy. */
+  protected String createEvent(
+      TestApiClient apiClient, String orgId, String name, String timerMode, String scramblePolicy) {
+    ResponseEntity<String> created =
+        apiClient.post(
+            "/api/v1/organizations/" + orgId + "/events",
+            Map.of(
+                "name", name,
+                "description", "",
+                "startsAt", "2027-01-01T00:00:00Z",
+                "timezone", "America/Los_Angeles",
+                "venueLabel", "Test venue",
+                "timerMode", timerMode,
+                "scramblePolicy", scramblePolicy));
+    return json(created).get("id").asText();
+  }
+
   protected String openRegistration(TestApiClient apiClient, String eventId) {
     ResponseEntity<String> response =
         apiClient.post("/api/v1/events/" + eventId + "/registration/open", null);

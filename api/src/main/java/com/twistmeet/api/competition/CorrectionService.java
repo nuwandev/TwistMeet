@@ -9,6 +9,7 @@ import com.twistmeet.api.event.EventRepository;
 import com.twistmeet.api.org.TenantAccessService;
 import com.twistmeet.api.registration.EventEntrant;
 import com.twistmeet.api.registration.GuestAuthResolver;
+import com.twistmeet.api.scramble.ScrambleService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
@@ -34,6 +35,7 @@ public class CorrectionService {
   private final TenantAccessService tenantAccessService;
   private final GuestAuthResolver guestAuthResolver;
   private final AuditService auditService;
+  private final ScrambleService scrambleService;
 
   public CorrectionService(
       CorrectionRepository correctionRepository,
@@ -42,7 +44,8 @@ public class CorrectionService {
       EventRepository eventRepository,
       TenantAccessService tenantAccessService,
       GuestAuthResolver guestAuthResolver,
-      AuditService auditService) {
+      AuditService auditService,
+      ScrambleService scrambleService) {
     this.correctionRepository = correctionRepository;
     this.attemptRepository = attemptRepository;
     this.attemptService = attemptService;
@@ -50,6 +53,7 @@ public class CorrectionService {
     this.tenantAccessService = tenantAccessService;
     this.guestAuthResolver = guestAuthResolver;
     this.auditService = auditService;
+    this.scrambleService = scrambleService;
   }
 
   @Transactional
@@ -110,7 +114,10 @@ public class CorrectionService {
       case ACCEPT_NO_RETRY -> attemptService.voidAttempt(attempt, actorUserId, body.reason());
       case ACCEPT_RETRY -> {
         attemptService.voidAttempt(attempt, actorUserId, body.reason());
-        attemptService.createReplacementAttempt(attempt);
+        Attempt replacement = attemptService.createReplacementAttempt(attempt);
+        // 02: "assign the next unused extra scramble if the event policy grants a replacement."
+        // A no-op if this round has no scramble batch (M4 feature not in use for this event).
+        scrambleService.assignScrambleIfBatchExists(replacement);
       }
       case REJECT, NEED_INFO -> {
         // Preserve the original result; no change to the attempt (02: "preserve the original

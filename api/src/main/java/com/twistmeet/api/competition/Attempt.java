@@ -13,9 +13,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * One attempt slot (00 §6 attempt lifecycle). {@code scrambleAssignmentId} is deliberately always
- * null this milestone — scramble generation/assignment is a later milestone (see DECISIONS.md) —
- * and nothing here depends on it being set.
+ * One attempt slot (00 §6 attempt lifecycle). {@code scrambleAssignmentId} is set by {@code
+ * ScrambleService} once a scramble batch has been generated for the round (M4); it stays null for
+ * rounds/events created before a batch exists, or if scrambles are never generated for that round —
+ * nothing in this class depends on it being set.
  */
 @Entity
 @Table(name = "attempts")
@@ -110,6 +111,10 @@ public class Attempt {
 
   public UUID getScrambleAssignmentId() {
     return scrambleAssignmentId;
+  }
+
+  public void setScrambleAssignmentId(UUID scrambleAssignmentId) {
+    this.scrambleAssignmentId = scrambleAssignmentId;
   }
 
   public ResultSource getResultSource() {

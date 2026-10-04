@@ -38,6 +38,11 @@ public final class AttemptDtos {
       UUID roundId,
       UUID entrantId,
       int attemptNumber,
+      // 08: "Attempt DTO includes scrambleAssignmentId?" — an opaque pointer only, never the
+      // notation itself. Safe to expose to the owning competitor too: the current-scramble
+      // endpoint (M4) independently re-checks ownership and "unlocked" status before ever
+      // returning notation, so this ID alone grants no access.
+      UUID scrambleAssignmentId,
       ResultSource resultSource,
       AttemptState state,
       Long rawTimeMs,
@@ -55,6 +60,7 @@ public final class AttemptDtos {
           attempt.getRoundId(),
           attempt.getEntrantId(),
           attempt.getAttemptNumber(),
+          attempt.getScrambleAssignmentId(),
           attempt.getResultSource(),
           attempt.getState(),
           attempt.getRawTimeMs(),
