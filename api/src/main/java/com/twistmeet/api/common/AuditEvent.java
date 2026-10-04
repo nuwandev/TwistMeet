@@ -68,4 +68,40 @@ public class AuditEvent {
   public UUID getId() {
     return id;
   }
+
+  public UUID getOrganizationId() {
+    return organizationId;
+  }
+
+  public UUID getEventId() {
+    return eventId;
+  }
+
+  public String getActorType() {
+    return actorType;
+  }
+
+  public UUID getActorId() {
+    return actorId;
+  }
+
+  public String getAction() {
+    return action;
+  }
+
+  public String getTargetType() {
+    return targetType;
+  }
+
+  public String getTargetId() {
+    return targetId;
+  }
+
+  public String getReason() {
+    return reason;
+  }
+
+  public Instant getOccurredAt() {
+    return occurredAt;
+  }
 }
