@@ -5,10 +5,13 @@ brand (see `DECISIONS.md`). The controlling specification is `product-docs/00-au
 read `product-docs/README.md` first. Build status, decisions, and traceability live in
 `M0-REPORT.md`, `DECISIONS.md`, and `TRACEABILITY.md` at the repo root.
 
-This is **Milestone 1** (product foundation + project setup): staff auth, organizations, tenant
-isolation, event lifecycle, and guest join. Competition rounds, scoring, scrambles, and public
-display are not built yet — see `TRACEABILITY.md` for what's implemented vs. planned per
-milestone.
+This is **Milestone 2** (competition engine): round setup/lifecycle, the attempt state machine for
+both physical-judge and phone-casual modes, roster management, judge result entry with append-only
+correction history, and the scoring/ranking engine — on top of Milestone 1's staff auth,
+organizations, tenant isolation, event lifecycle, and guest join. Scramble generation/vault,
+advancement as an operational feature, publishing, and public display are not built yet — see
+`TRACEABILITY.md` for what's implemented vs. planned per milestone, and `DECISIONS.md` for the
+M2 implementation decisions.
 
 ## Repository layout
 
@@ -115,6 +118,12 @@ database you're fine seeing wiped repeatedly, not one with data you care about.
 
 See `TRACEABILITY.md` section G for the full per-route status. In short: staff register/login/
 logout, organizations, event create/edit/lifecycle (draft → registration open → locked →
-reopened), join-code rotation, guest join with duplicate-name disambiguation, and an
-organizer-only roster read are built and tested. Rounds, attempts, scoring, scrambles,
-corrections, advancement, public display, and CSV export are not built yet (milestones M2–M5).
+reopened), join-code rotation, guest join with duplicate-name disambiguation, full roster
+management (add/edit/check-in/withdraw/remove), round setup and lifecycle (draft → preparing →
+ready → live → review → closed), the attempt state machine for both physical-judge and
+phone-casual modes, judge result entry with append-only revision history, competitor correction
+requests with organizer decisions, the pure scoring/ranking engine (every `09` conformance vector
+and property test), and a staff-only standings view are built and tested. Scramble generation/
+vault, advancement as an operational feature (the pure top-N/top-percent math is built but not
+wired to any endpoint), publishing, public display, and CSV export are not built yet (milestones
+M3–M5).

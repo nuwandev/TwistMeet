@@ -18,12 +18,12 @@ by this document for traceability only; they do not appear in the source specs.
 | R01 | Responsive web app, staff accounts, org workspaces, tenant isolation | Auth module; Org module; all API middleware | Cross-tenant authorization test suite (`08` API security tests); responsive layout check at 360px/desktop |
 | R02 | Event create/edit, public/private, timezone/date/description, rules preview, clone, archive, history | Event module; S03, S04, S14 | Event lifecycle tests; `12` Product-acceptance item "Event creation wizard…" |
 | R03 | QR/URL/short code join; guest display name + event-scoped credential; no account required in physical mode | Registration module; P01, P02 | `12` "QR, URL and short code join work…"; `08` join-code rate-limit/rotation tests |
-| R04 | Roster: add/edit/check-in/remove-before-start/withdraw-after-start, no silent merge, lock/unlock | Roster module; S05 | `12` "Organizer can add/edit/remove…"; duplicate-name and withdraw-vs-delete tests |
+| R04 | Roster: add/edit/check-in/remove-before-start/withdraw-after-start, no silent merge, lock/unlock | Roster module; S05 | **Built** — `RosterService` (add/update/checkIn/withdraw/remove), `DisplayNamePolicy.disambiguate()` for no-silent-merge. Tested in `RosterManagementTest` (rows 25–29). "Lock/unlock" is the existing M1 `registration/lock`/`reopen` transitions (row 19/20), not a separate roster-level lock |
 | R05 | 3×3×3 single event; Single/Quick/Custom; formats Bo1/Bo2/Bo3/Mo3/Ao5; advancement everyone/topN/top%; tie handling | Round config module; S03, S06 | `09` conformance vectors (section D below); advancement boundary tests |
 | R06 | Two modes: (A) physical timer+judge entry default, (B) phone/casual; no silent Remote mode | Attempt module; mode flag on Event/Round | Mode-labeling tests; `12` "Physical timer mode supports…", "Phone mode clearly labels self-timed…" |
 | R07 | Organizer-configurable scramble policy (staff-prepared / self-scramble casual-only); extras, role-bound release, printable sheets, 3D guide, human attestations, audit trail | Scramble module; S07 | `12` "Scramble roles, 3D guide, applied/checked status…"; leakage security tests |
 | R08 | Competitor status, judge/scrambler station, timer (when enabled), attempt status, help/correction request, personal result view | P03, P04, P05, P06, P07 | E2E competitor-journey test |
-| R09 | Judge entry of time/+2/DNF/DNS/note; correction approvals; immutable revision history; no direct competitor edit | S09, S10; Attempt/Correction module | `09` property test "Revisions recalculate…"; audit append-only test |
+| R09 | Judge entry of time/+2/DNF/DNS/note; correction approvals; immutable revision history; no direct competitor edit | S09, S10; Attempt/Correction module | **Built** — `AttemptService.recordJudgeResult()` + `ResultRevision` (append-only, every entry including the first); `CorrectionService.decide()` for approvals. No endpoint lets a competitor write `Attempt`'s result fields. Tested in `AttemptFlowTest.judgeModeRecordsAResultAndEveryEntryCreatesARevision`, `CorrectionFlowTest` |
 | R10 | Organizer Tournament Control: real-time progress, exceptions, round close, advancement preview/commit, publish, display mode, CSV export, history | S08, S11, S12, S13, S14 | `12` "Round close blocks unresolved…", "Public display reveals only…" |
 | R11 | Deterministic, versioned score/rank calculation and tests | Scoring module (pure function) | `09` full conformance + property test suite |
 | R12 | Accessibility baseline WCAG 2.2 AA, localization-ready, reduced-motion, mobile, status clarity, offline paper fallback | Design system; all screens | `12` Reliability/accessibility checklist (section F below) |
@@ -53,12 +53,12 @@ the excluded capability (tracked at M3/M4 UI copy review and before any public l
 
 | ID | Requirement | Area | Evidence |
 |---|---|---|---|
-| R14 | Physical mode: judge observes/enters result; competitor sees prepared/covered cube; label "Judge recorded · physical timer" | Attempt module; P05 | Label-presence test; scramble-not-exposed test |
-| R15 | Phone mode: competitor's device records self-reported time; competitor sees sequence + 3D guide before solve; label "Self-timed · device/browser timing" | Attempt module; P04 | Label-presence test |
-| R16 | Organizer cannot describe phone results as independently verified | UI copy; S03 rules preview | Copy-review checklist (M3/M4) |
-| R17 | No silent mixing of result sources within a round | Round/Attempt module | Round-level source-consistency test |
-| R18 | Exceptional replacement keeps original source visible per attempt | Result detail UI; S12 | Result-detail field test showing per-attempt source |
-| R19–R24 | Role definitions: Owner, Organizer, Judge, Scrambler, Competitor, Spectator (`00` §5) | Role/permission module | Role-matrix authorization test (one row per role × sensitive action, per `12` "Role matrix tested for every sensitive command") |
+| R14 | Physical mode: judge observes/enters result; competitor sees prepared/covered cube; label "Judge recorded · physical timer" | Attempt module; P05 | **Built** — `ResultSource.JUDGE` recorded per attempt; `rounds/[roundId]/judge` UI. Scramble generation/covering is M4 scope (not built; no scramble exists yet to leak), so the "covered cube" half of this row has nothing to expose either way. Label rendering tested via E2E (`m2_e2e.mjs`) |
+| R15 | Phone mode: competitor's device records self-reported time; competitor sees sequence + 3D guide before solve; label "Self-timed · device/browser timing" | Attempt module; P04 | **Built (timer half only)** — `ResultSource.SELF_TIMED`, competitor start/stop/submit UI on `e/[eventId]`. The scramble-sequence+3D-guide half is M4 scope (self-scramble vault not built); the attempt/timer flow itself is built and tested via E2E (`m2_e2e_phone.mjs`) |
+| R16 | Organizer cannot describe phone results as independently verified | UI copy; S03 rules preview | Copy-review checklist (M3/M4) — unchanged, no M2 UI claims verification |
+| R17 | No silent mixing of result sources within a round | Round/Attempt module | **Built** — `RoundService.prepare()` assigns one `ResultSource` to every attempt in a round, derived from `Event.timerMode`; there is no path that lets a single round contain both sources |
+| R18 | Exceptional replacement keeps original source visible per attempt | Result detail UI; S12 | **Built** — a correction-granted replacement attempt (`CorrectionService.decide(ACCEPT_RETRY)`) is a new `Attempt` row with its own `resultSource`; the voided original's source and values remain readable via `GET /attempts/{attemptId}/revisions` (row 68). Tested in `CorrectionFlowTest.acceptRetryVoidsAndCreatesAReplacementAttempt` |
+| R19–R24 | Role definitions: Owner, Organizer, Judge, Scrambler, Competitor, Spectator (`00` §5) | Role/permission module | Owner/Organizer: **Built** since M1 (`OrgRole`). Judge: **Built** at M2 (`EventRole.JUDGE` via `EventStaffAssignment`, event-scoped, independent of org membership — see DECISIONS.md). Scrambler: **Not built** — scramble module is M4 scope, no scrambler-specific role action exists yet to gate. Competitor/Spectator: **Built** since M1 (guest credential; public read paths). Role-matrix tests: `RoundLifecycleTest.onlyOrganizerCanConfigureOrTransitionRounds`, `.judgeAssignedToTheEventCannotConfigureRoundsButCanEnterResults`, `CorrectionFlowTest.onlyOrganizerCanDecideACorrectionNotJudgeOrStranger`, `StandingsIntegrationTest.standingsAreAuthorizedStaffOnlyNotCompetitor` |
 | R25 | Server-side authorization on every request | All API controllers | `12` "Role matrix tested…hidden UI cannot substitute for backend denial" |
 | R26 | Display current role/scope visibly on staff pages | `RoleBanner` component; all staff screens | Component render test |
 | R27 | Staff roles org-scoped; event assignment can narrow further | Role/permission module | Scoped-access test (org role vs. event-assignment role) |
@@ -67,14 +67,14 @@ the excluded capability (tracked at M3/M4 UI copy review and before any public l
 | R30 | Event lifecycle `DRAFT→REGISTRATION_OPEN→REGISTRATION_LOCKED→READY→LIVE→COMPLETED→ARCHIVED`; organizer-only transitions | Event state machine | State-machine transition tests incl. unauthorized-actor rejection |
 | R31 | Completed event reopenable for corrections with actor/reason, recompute standings | Event state machine; S11 reopen path | Reopen/recompute test with before/after snapshot |
 | R32 | Archived read-only except export/delete | Event state machine | Archived-state write-rejection test |
-| R33 | Round lifecycle `DRAFT→PREPARING→READY→LIVE→REVIEW→CLOSED` | Round state machine | Transition tests |
-| R34 | REVIEW begins after all slots resolved; unresolved corrections block close | Round state machine | Close-blocked-by-pending test |
-| R35 | Organizer can close with outstanding entrants only via recorded DNS/withdrawal | Round close flow; S11 | Close-with-DNS test |
-| R36 | Advancement `PREVIEW→COMMITTED`, auditable, creates next-round entrants | Advancement module; S11 | `08` advancement preview/commit idempotency test |
-| R37 | Attempt lifecycle `PENDING→ASSIGNED→PREPARING→READY→INSPECTION→RUNNING→STOPPED→SUBMITTED→ACCEPTED`, alt `DNS/DNF/VOIDED` | Attempt state machine | Transition + alt-path tests |
-| R38 | Phone mode allows competitor-session RUNNING/STOPPED transitions; physical mode does not expose this control | Attempt module; P04 vs P05 | Role/mode-gated transition test |
-| R39 | Every command idempotent | All write endpoints | `08` "repeated writes are idempotent" test (per endpoint) |
-| R40 | Void retains original values, requires reason + organizer permission; no hard-delete after assignment | Attempt/Correction module | Void-preserves-data test |
+| R33 | Round lifecycle `DRAFT→PREPARING→READY→LIVE→REVIEW→CLOSED` | Round state machine | **Built** — `Round`/`RoundState`/`RoundService`. Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState` |
+| R34 | REVIEW begins after all slots resolved; unresolved corrections block close | Round state machine | **Built** — `RoundService.review()`/`.close()`. Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState`, `CorrectionFlowTest` (close blocked by pending correction) |
+| R35 | Organizer can close with outstanding entrants only via recorded DNS/withdrawal | Round close flow; S11 | **Built** — DNF/DNS are recordable results (`AttemptOutcome`), and withdrawal (row 28) removes an entrant from future consideration without erasing history; close still requires every non-voided attempt resolved. Covered by `AttemptFlowTest.dnsAndDnfAreRejectedWithARawTimeAndOkRequiresOneWithinBounds` and `RosterManagementTest` |
+| R36 | Advancement `PREVIEW→COMMITTED`, auditable, creates next-round entrants | Advancement module; S11 | **Not built** — explicitly out of this milestone's scope (advancement as an operational feature is deferred; only the pure `AdvancementCalculator` math is built, see V11/V12 and DECISIONS.md). M3/M5 scope |
+| R37 | Attempt lifecycle `PENDING→ASSIGNED→PREPARING→READY→INSPECTION→RUNNING→STOPPED→SUBMITTED→ACCEPTED`, alt `DNS/DNF/VOIDED` | Attempt state machine | **Built, simplified** — `Attempt`/`AttemptState` {PENDING, RUNNING, STOPPED, SUBMITTED, ACCEPTED, VOIDED}. The ASSIGNED/PREPARING/READY/INSPECTION sub-states are collapsed into PENDING for both modes (round-level PREPARING already tracks slot allocation; per-attempt inspection-countdown UI is a client-side concern, not a separate server state the contract's own §9 test vectors require) — a simplification, not a behavior change: judge mode goes PENDING→ACCEPTED directly on `recordJudgeResult`, phone mode goes PENDING→RUNNING→STOPPED→ACCEPTED via `start`/`stop`/`submit`. Tested in `AttemptFlowTest` |
+| R38 | Phone mode allows competitor-session RUNNING/STOPPED transitions; physical mode does not expose this control | Attempt module; P04 vs P05 | **Built** — `AttemptService.start()`/`.stop()` 403 outside phone/self-timed mode. Tested in `AttemptFlowTest.judgeModeRecordsAResultAndEveryEntryCreatesARevision` (negative case), `.selfTimedModeLetsCompetitorStartStopSubmitAndIsIdempotent` (positive case) |
+| R39 | Every command idempotent | All write endpoints | **Built** for the M2 endpoints most at risk of a retry-caused double-effect: self-timed submission (row 42) and round-prepare (row 32, re-running on an already-prepared entrant is a no-op). Judge-result and correction-decision use `expectedVersion` optimistic concurrency instead of pure idempotency (a repeated identical call with the current version is harmless; a stale version is rejected, never silently reapplied). Tested in `AttemptFlowTest.selfTimedModeLetsCompetitorStartStopSubmitAndIsIdempotent`, `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState` (`prepare` re-run) |
+| R40 | Void retains original values, requires reason + organizer permission; no hard-delete after assignment | Attempt/Correction module | **Built** — `CorrectionService.decide()`/`AttemptService.voidAttempt()`: void never deletes the row, and the pre-void raw/penalty/status is preserved in `ResultRevision` history. Tested in `CorrectionFlowTest.acceptNoRetryVoidsTheAttemptButPreservesTheOriginalValueInHistory` |
 | R41 | Staff-prepared scramble behavior: server-generated, encrypted at rest, assigned to slot, revealed only to assigned scrambler/judge, never pre-shown to competitor, audited access, human applied/checked marks | Scramble module; S07 | Leakage test matrix (API/HTML/cache/log); audit-on-reveal test |
 | R42 | Self-scramble behavior: distinct sequence per competitor/attempt, shown with notation+3D guide, labeled self-scrambled/self-timed, timestamped reveal, no future sequence pre-unlock | Scramble module; P04 | Reveal-timing test; future-sequence-hidden test |
 | R43 | Established generator, reviewed license/maintenance/correctness/version | Scramble generation service | Dependency review record (M4); NA for automated test, process evidence only |
@@ -100,27 +100,34 @@ the excluded capability (tracked at M3/M4 UI copy review and before any public l
 
 ## D. `09-scoring-conformance.md` — every conformance vector and property test (19 items)
 
+All 19 items below are **Built and tested** — `ScoringEngine`/`RankingService`/`AdvancementCalculator`
+(package `com.twistmeet.api.scoring`, zero Spring/JPA dependencies, exact rational arithmetic via
+`ExactValue` to avoid float rounding) with every vector/property verified in
+`ScoringEngineConformanceTest` (18 tests, V01–V12 + P01–P05, P07) plus P06 verified at the
+integration level in `StandingsIntegrationTest.revisingAJudgeResultRecalculatesStandings` (a judge
+correction recalculates the round's standings; before/after snapshots asserted directly).
+
 | ID | Vector / rule | Area | Evidence |
 |---|---|---|---|
-| V01 | Ao5: 14.21,12.84,18.91,13.05,12.10 → 13.37 (discard 12.10, 18.91) | Scoring module | Unit test, exact fixture |
-| V02 | Ao5: 14.20,13.80,DNF,15.10,13.40 → 14.37 (discard 13.40 and DNF; corrected value per note) | Scoring module | Unit test, exact fixture — **must use corrected 14.37 value**, not the earlier erroneous draft number |
-| V03 | Ao5: 10.00,11.00,12.00,DNF,DNS → DNF (fewer than four valid) | Scoring module | Unit test |
-| V04 | Ao5: 10.00,10.00,12.00,13.00,14.00 → 11.67 (discard one 10.00 by attempt-number tie-break, and 14.00) | Scoring module | Unit test incl. deterministic tie-break assertion |
-| V05 | Mo3: 10.00,11.00,12.00 → 11.00 | Scoring module | Unit test |
-| V06 | Mo3: 10.00,11.00,DNS → DNF | Scoring module | Unit test |
-| V07 | Bo3: 11.00,10.00,DNF → 10.00 (best valid single) | Scoring module | Unit test |
-| V08 | Penalty: raw 12.345 +2 → stored raw=12345ms, penalty=2000ms, adjusted=14345ms | Scoring module | Unit test on raw/penalty/adjusted separation |
-| V09 | Rank: Ao5 12.00 vs 12.00, best singles 9.00 vs 9.50 → rank 1, rank 2 (average tie breaks on best single) | Ranking module | Unit test |
-| V10 | Rank: identical average and best → shared rank 1, next rank 3 (competition ranking) | Ranking module | Unit test |
-| V11 | Top N: ranks 1,2,2,4, N=2 → first three advance (boundary tie included) | Advancement module | Unit test |
-| V12 | Percent: 11 eligible, 25% → target 3 (ceil(2.75)), include cutoff ties | Advancement module | Unit test |
-| P01 | Attempt input order does not change score except deterministic tie selection | Scoring module | Property test (randomized order permutations) |
-| P02 | Adding an attempt outside retained Ao5 three cannot change average unless it changes which extreme is discarded | Scoring module | Property test |
-| P03 | +2 affects comparisons/averages by exactly 2000ms | Scoring module | Property test |
-| P04 | DNF/DNS never outrank valid times | Ranking module | Property test |
-| P05 | Same inputs + same ruleset version → byte-equivalent derived values | Scoring module | Determinism/reproducibility test |
-| P06 | Revisions recalculate result and downstream standings with before/after snapshots | Correction module | Integration test with revision history assertions |
-| P07 | Empty/pending attempt set never generates a final result | Scoring module | Unit test (guards against premature finalization) |
+| V01 | Ao5: 14.21,12.84,18.91,13.05,12.10 → 13.37 (discard 12.10, 18.91) | Scoring module | **Built** — `ScoringEngineConformanceTest.v01_ao5BasicDiscardFastestAndSlowest` |
+| V02 | Ao5: 14.20,13.80,DNF,15.10,13.40 → 14.37 (discard 13.40 and DNF; corrected value per note) | Scoring module | **Built** — `ScoringEngineConformanceTest.v02_ao5CorrectedDnfCase`, using the corrected 14.37 value |
+| V03 | Ao5: 10.00,11.00,12.00,DNF,DNS → DNF (fewer than four valid) | Scoring module | **Built** — `ScoringEngineConformanceTest.v03_ao5FewerThanFourValidIsDnf` |
+| V04 | Ao5: 10.00,10.00,12.00,13.00,14.00 → 11.67 (discard one 10.00 by attempt-number tie-break, and 14.00) | Scoring module | **Built** — `ScoringEngineConformanceTest.v04_ao5TieDiscardByAttemptNumber`, incl. deterministic tie-break assertion |
+| V05 | Mo3: 10.00,11.00,12.00 → 11.00 | Scoring module | **Built** — `ScoringEngineConformanceTest.v05_mo3ArithmeticMean` |
+| V06 | Mo3: 10.00,11.00,DNS → DNF | Scoring module | **Built** — `ScoringEngineConformanceTest.v06_mo3AnyDnsMakesMeanDnf` |
+| V07 | Bo3: 11.00,10.00,DNF → 10.00 (best valid single) | Scoring module | **Built** — `ScoringEngineConformanceTest.v07_bo3BestValidSingle` |
+| V08 | Penalty: raw 12.345 +2 → stored raw=12345ms, penalty=2000ms, adjusted=14345ms | Scoring module | **Built** — `ScoringEngineConformanceTest.v08_plusTwoPenaltyAppliedBeforeComparison` |
+| V09 | Rank: Ao5 12.00 vs 12.00, best singles 9.00 vs 9.50 → rank 1, rank 2 (average tie breaks on best single) | Ranking module | **Built** — `ScoringEngineConformanceTest.v09_rankAverageTieBreaksOnBestSingle` |
+| V10 | Rank: identical average and best → shared rank 1, next rank 3 (competition ranking) | Ranking module | **Built** — `ScoringEngineConformanceTest.v10_rankIdenticalSharesRankThenSkips` |
+| V11 | Top N: ranks 1,2,2,4, N=2 → first three advance (boundary tie included) | Advancement module | **Built** — `ScoringEngineConformanceTest.v11_topNIncludesBoundaryTies` (`AdvancementCalculator` built and unit-tested; not wired to any endpoint — advancement as an operational feature is explicitly out of this milestone's scope, see DECISIONS.md) |
+| V12 | Percent: 11 eligible, 25% → target 3 (ceil(2.75)), include cutoff ties | Advancement module | **Built** — `ScoringEngineConformanceTest.v12_topPercentCeilsAndIncludesCutoffTies` |
+| P01 | Attempt input order does not change score except deterministic tie selection | Scoring module | **Built** — `ScoringEngineConformanceTest.p01_attemptOrderDoesNotChangeScore` (randomized order permutations) |
+| P02 | Adding an attempt outside retained Ao5 three cannot change average unless it changes which extreme is discarded | Scoring module | **Built** — `ScoringEngineConformanceTest.p02_changingADiscardedExtremeWithoutChangingWhichOneIsDiscardedDoesNotAffectAverage` |
+| P03 | +2 affects comparisons/averages by exactly 2000ms | Scoring module | **Built** — `ScoringEngineConformanceTest.p03_plusTwoAffectsByExactly2000Ms` |
+| P04 | DNF/DNS never outrank valid times | Ranking module | **Built** — `ScoringEngineConformanceTest.p04_dnfNeverOutranksValidTimes` |
+| P05 | Same inputs + same ruleset version → byte-equivalent derived values | Scoring module | **Built** — `ScoringEngineConformanceTest.p05_sameInputsSameRulesetAreByteEquivalent` |
+| P06 | Revisions recalculate result and downstream standings with before/after snapshots | Correction module | **Built** — `StandingsIntegrationTest.revisingAJudgeResultRecalculatesStandings` (integration-level, not a pure-engine unit test, since it exercises the full judge-result → standings-recompute path) |
+| P07 | Empty/pending attempt set never generates a final result | Scoring module | **Built** — `ScoringEngineConformanceTest.p07_emptyAttemptSetNeverGeneratesAFinalResult` |
 
 Units/penalty rules (raw ms, `NONE`/`PLUS_TWO`/`DNF`/`DNS` semantics, `PENDING` status) and
 rounding rules (display half-up at configured precision, sort by exact rational/integer value,
@@ -134,21 +141,21 @@ dedicated CSV-export format test.
 | P01 | Home / event discovery | Public | Public module | Discovery-disabled-by-default test; no private-event enumeration test |
 | P02 | Join event | Guest | Registration module | `12` join-flow test; validation/duplicate-name tests |
 | P03 | Competitor waiting room | Competitor | Competitor module | State-rendering test (waiting/check-in/ready/round-not-open/disconnected/withdrawn) |
-| P04 | Attempt screen (phone mode) | Competitor | Attempt module | Scramble-reveal-timing test; focus-loss-preserves-timer test |
-| P05 | Attempt status (judge-controlled mode) | Competitor | Attempt module | No-scramble-exposed test |
-| P06 | Correction request | Competitor | Correction module | Category/note validation test; request-ID confirmation test |
-| P07 | Personal result/history | Competitor | Result module | Own-entrant-only field test |
+| P04 | Attempt screen (phone mode) | Competitor | Attempt module | **Built (timer half)** — `e/[eventId]` self-timed start/stop/submit UI. Scramble-reveal-timing test is M4 scope (no scramble exists yet). Tested via E2E (`m2_e2e_phone.mjs`) |
+| P05 | Attempt status (judge-controlled mode) | Competitor | Attempt module | **Built** — `e/[eventId]` shows judge-recorded result/status; no scramble is ever sent to this screen (none exists yet — M4 scope). Tested via E2E (`m2_e2e.mjs`) |
+| P06 | Correction request | Competitor | Correction module | **Built** — `e/[eventId]` correction-request form (category/note). Tested in `CorrectionFlowTest.competitorCanRequestACorrectionOnlyForTheirOwnAttempt`, E2E (`m2_e2e_phone.mjs`) |
+| P07 | Personal result/history | Competitor | Result module | **Built** — `e/[eventId]` renders the competitor's own attempts/results (row 67's own-attempts endpoint). Own-entrant-only field test in `AttemptFlowTest.competitorCanListTheirOwnAttemptsAcrossTheEvent` |
 | S01 | Staff sign-in and recovery | Staff | Auth module | MFA, rate-limit, enumeration-resistance tests |
 | S02 | Organization dashboard | Owner/Organizer | Org module | Empty-state and scope-switch tests |
 | S03 | Event creation wizard | Organizer | Event module | Step validation tests; draft save test |
 | S04 | Event overview | Organizer | Event module | Lifecycle-badge/action-availability test |
-| S05 | Competitor roster | Organizer | Roster module | Add/edit/check-in/remove/withdraw tests |
-| S06 | Round setup | Organizer | Round module | Advancement-count validation; ceil-percent preview test |
-| S07 | Scramble preparation station | Scrambler/Judge | Scramble module | Role-gating test; applied/checked audit test |
-| S08 | Tournament Control | Organizer | Control room module | Filter/action tests; live-update-no-reorder test |
-| S09 | Judge entry | Judge | Attempt module | Save/undo-window/idempotency tests |
-| S10 | Correction queue | Organizer | Correction module | Decision-action and audit-timeline tests |
-| S11 | Round review and advancement | Organizer | Advancement module | Preview/commit transactional test |
+| S05 | Competitor roster | Organizer | Roster module | **Built** — `events/[eventId]` roster section (add/edit/check-in/withdraw/remove). Tested in `RosterManagementTest` |
+| S06 | Round setup | Organizer | Round module | **Built** — `events/[eventId]` round-creation form + round list. Advancement-count validation tested in `RoundLifecycleTest.advancementTopNRequiresAPositiveValueAndCannotExceedFrozenEntrants`; ceil-percent preview math covered at the engine level by V12, not yet surfaced in this screen's UI (no advancement-preview UI exists — advancement is explicitly out of scope, see DECISIONS.md) |
+| S07 | Scramble preparation station | Scrambler/Judge | Scramble module | Not built — M4 scope (scramble vault/generation explicitly excluded from this milestone) |
+| S08 | Tournament Control | Organizer | Control room module | Not built — M3 scope (real-time control room; this milestone's judge-entry and standings screens cover the same underlying data without the live/filtered control-room composition) |
+| S09 | Judge entry | Judge | Attempt module | **Built** — `rounds/[roundId]/judge` table UI (status/+2/DNF/DNS, save). Tested via E2E (`m2_e2e.mjs`); backend in `AttemptFlowTest`. "Undo window" is not a separate mechanic — any entry can be corrected again via the same endpoint, with every change recorded in `ResultRevision` |
+| S10 | Correction queue | Organizer | Correction module | **Built** — `events/[eventId]/corrections` queue UI (decide with required reason). Tested in `CorrectionFlowTest`, E2E (`m2_e2e_phone.mjs`) |
+| S11 | Round review and advancement | Organizer | Advancement module | **Built (review half only)** — `events/[eventId]` "Enter review"/"Close round" actions. Advancement preview/commit is **not built** — explicitly out of this milestone's scope (see R36, DECISIONS.md) |
 | S12 | Results and publication | Organizer | Results module | Publish/unpublish/export/revision tests |
 | S13 | Public display | Spectator | Display module | Published-fields-only test; provisional-label test |
 | S14 | Event history and export | Organizer | History module | Search/filter, CSV column, deletion-vs-archive tests |
@@ -159,6 +166,13 @@ Shared components (`StatusBadge`, `SavedState`, `TimeInput`, `PenaltyPicker`, `R
 `OfflineState`, `LiveTable`, `ReducedMotion`) are cross-cutting; each is covered by a component
 test plus the "Design acceptance checklist" in `07` (all items captured individually in section F
 via the matching `12` checklist items, since the two checklists overlap).
+
+**M2 minimal UI addition, not one of the 22 enumerated screens:** `rounds/[roundId]/standings`, a
+simple authorized (staff-only) standings table showing provisional/final state, rank, result, and
+best single. `07` describes public/published standings (S13) and organizer results/publication
+(S12), both out of this milestone's scope, but gives staff no way at all to see the
+`GET /rounds/{roundId}/standings` data (row 54) this milestone built. Built and tested via E2E
+(`m2_e2e.mjs`, which asserts "Provisional" and the correct result appear after a judge entry).
 
 ## F. `12-release-acceptance.md` — every checklist item (28 release-gate items + process items)
 
@@ -255,26 +269,26 @@ the real-time channel as a 63rd row at the end. This replaces the earlier underc
 | 21 | `POST /events/{eventId}/join-codes/rotate` | Event | Organizer | `Event` (join code hash) | Rotation-invalidates-old-code test (PA02) | **Built** — `EventLifecycleAndJoinTest.joinCodeRotationInvalidatesOldCode` |
 | 22 | `POST /join/{joinCode}` | Registration | Public, valid join code | `EventEntrant`, guest credential | Join-code rate-limit/validity test (PA02, SP03); never returns roster test | **Built** — `EventLifecycleAndJoinTest` (rate limiting implemented, not covered by an automated test — gap) |
 | 23 | `GET /guest/events/{eventId}/me` | Registration | Guest (own credential) | `EventEntrant` | Own-entrant-only field test | **Built** — `EventLifecycleAndJoinTest.guestCredentialDoesNotCrossEventBoundary` |
-| 24 | `PATCH /guest/events/{eventId}/me` | Registration | Guest (own credential), display name only pre-start | `EventEntrant` | Self-edit-scope test | Not built (M1 scope is join-only; guest self-edit deferred to M2 roster management) |
-| 25 | `POST /events/{eventId}/entrants` | Roster | Organizer (staff add) | `EventEntrant` | Manual-add test (S05) | Not built (M2 "roster management" per the milestone table; M1 only has guest self-join) |
-| 26 | `PATCH /events/{eventId}/entrants/{entrantId}` | Roster | Organizer | `EventEntrant` | Edit test; duplicate-name disambiguation test | Not built (see row 25) |
-| 27 | `POST /events/{eventId}/entrants/{entrantId}/check-in` | Roster | Organizer/Judge | `EventEntrant` (checkInState) | Check-in state test | Not built (see row 25) |
-| 28 | `POST /events/{eventId}/entrants/{entrantId}/withdraw` | Roster | Organizer | `EventEntrant` (status) | Withdraw-preserves-audit test (R04/PA04) | Not built (see row 25) |
-| 29 | `DELETE /events/{eventId}/entrants/{entrantId}` | Roster | Organizer, only before attempt assignment | `EventEntrant`, `AuditEvent` | Delete-blocked-after-assignment test; tombstone/audit test | Not built (see row 25) |
-| 30 | `POST /events/{eventId}/rounds` | Round | Organizer, draft event only | `Round` | Draft-only-creation test | Not built — M2 scope |
-| 31 | `PATCH /rounds/{roundId}` | Round | Organizer, before live | `Round` | Pre-live-edit test; blocked-after-live test | Not built — M2 scope |
-| 32 | `POST /rounds/{roundId}/prepare` | Round | Organizer | `Round`, `Attempt` slots, `ScrambleAssignment` | Freeze-entrants/ruleset test (R33, R41) | Not built — M2 scope |
-| 33 | `POST /rounds/{roundId}/ready` | Round | Organizer | `Round` (state) | Transition test | Not built — M2 scope |
-| 34 | `POST /rounds/{roundId}/start` | Round | Organizer | `Round` (state) | Transition test | Not built — M2 scope |
-| 35 | `POST /rounds/{roundId}/pause` | Round | Organizer | `Round` (state) | Transition test | Not built — M2 scope |
-| 36 | `POST /rounds/{roundId}/review` | Round | Organizer (or system-triggered on full resolution) | `Round` (state) | REVIEW-after-all-resolved test (R34) | Not built — M2 scope |
-| 37 | `POST /rounds/{roundId}/close` | Round | Organizer | `Round` (state) | Close-blocked-by-pending test (PA09) | Not built — M2 scope |
-| 38 | `GET /rounds/{roundId}/control-state` | Control room | Staff, role-filtered | `Round`, `Attempt`, `EventEntrant` snapshot | Role-filtered-snapshot test (S08) | Not built — M3 scope |
-| 39 | `GET /attempts/{attemptId}` | Attempt | Role-filtered (judge, organizer, or own entrant) | `Attempt` | Authorized-fields-only test | Not built — M2 scope |
-| 40 | `POST /attempts/{attemptId}/start` | Attempt | Competitor, phone mode only, own credential, current attempt | `Attempt` (state) | Mode-gated-control test (R38) | Not built — M2 scope |
-| 41 | `POST /attempts/{attemptId}/stop` | Attempt | Competitor, phone mode only, own credential | `Attempt` (state) | Mode-gated-control test | Not built — M2 scope |
-| 42 | `POST /attempts/{attemptId}/submit` | Attempt | Competitor, phone mode | `Attempt` (rawTimeMs, penalty, resultSource=self-timed) | Idempotency test (DUPLICATE_ATTEMPT); penalty-validation test | Not built — M2 scope |
-| 43 | `PUT /attempts/{attemptId}/judge-result` | Attempt | Judge | `Attempt`, `ResultRevision` | Judge-only test; revision-recorded test (R09) | Not built — M2 scope |
+| 24 | `PATCH /guest/events/{eventId}/me` | Registration | Guest (own credential), display name only pre-start | `EventEntrant` | Self-edit-scope test | **Built** — `JoinController.updateMe()`; blocked once any attempt leaves `PENDING`. Tested in `RosterManagementTest.guestCanRenameThemselvesBeforeAttemptsStartButNotAfter` |
+| 25 | `POST /events/{eventId}/entrants` | Roster | Organizer (staff add) | `EventEntrant` | Manual-add test (S05) | **Built** — `RosterService.add()`. Tested in `RosterManagementTest.organizerCanAddEditCheckInAndRemoveAnEntrantBeforeAnyAttemptExists`, `.manualAddDisambiguatesDuplicateDisplayNamesLikeGuestJoinDoes` |
+| 26 | `PATCH /events/{eventId}/entrants/{entrantId}` | Roster | Organizer | `EventEntrant` | Edit test; duplicate-name disambiguation test | **Built** — `RosterService.update()`, reuses `DisplayNamePolicy.disambiguate()`. Tested in `RosterManagementTest.manualAddDisambiguatesDuplicateDisplayNamesLikeGuestJoinDoes` |
+| 27 | `POST /events/{eventId}/entrants/{entrantId}/check-in` | Roster | Organizer/Judge | `EventEntrant` (checkInState) | Check-in state test | **Built** — `RosterService.checkIn()`, via `TenantAccessService.requireJudgeOrOrganizer()`. Tested in `RosterManagementTest.organizerCanAddEditCheckInAndRemoveAnEntrantBeforeAnyAttemptExists` |
+| 28 | `POST /events/{eventId}/entrants/{entrantId}/withdraw` | Roster | Organizer | `EventEntrant` (status) | Withdraw-preserves-audit test (R04/PA04) | **Built** — `RosterService.withdraw()`, idempotent, preserves existing attempts. Tested in `RosterManagementTest.removingAnEntrantWithAttemptsIsBlockedAndWithdrawIsUsedInstead` |
+| 29 | `DELETE /events/{eventId}/entrants/{entrantId}` | Roster | Organizer, only before attempt assignment | `EventEntrant`, `AuditEvent` | Delete-blocked-after-assignment test; tombstone/audit test | **Built** — `RosterService.remove()`: hard-deletes only when `!attemptRepository.existsByEntrantId`, else `409` directing to withdraw (see DECISIONS.md "Roster remove vs. withdraw"). Tested in `RosterManagementTest.organizerCanAddEditCheckInAndRemoveAnEntrantBeforeAnyAttemptExists` (removal succeeds pre-attempt) and `.removingAnEntrantWithAttemptsIsBlockedAndWithdrawIsUsedInstead` (409 once attempts exist) |
+| 30 | `POST /events/{eventId}/rounds` | Round | Organizer, draft/registration-open/registration-locked event (see DECISIONS.md "Round creation…" for the reading of "draft event only") | `Round` | Draft-only-creation test | **Built** — `RoundService.create()`. Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState`, `.onlyOrganizerCanConfigureOrTransitionRounds` |
+| 31 | `PATCH /rounds/{roundId}` | Round | Organizer, before live | `Round` | Pre-live-edit test; blocked-after-live test | **Built** — `RoundService.update()`/`applyDraftEdits()`. Tested in `RoundLifecycleTest.roundConfigIsEditableOnlyBeforeLive` |
+| 32 | `POST /rounds/{roundId}/prepare` | Round | Organizer | `Round`, `Attempt` slots | Freeze-entrants/ruleset test (R33, R41) | **Built** — `RoundService.prepare()`: freezes `ACTIVE` entrants, allocates `format.attemptCount()` attempts each, skips already-prepared entrants (idempotent). Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState`. (`ScrambleAssignment` is out of scope — scramble generation/vault is M4) |
+| 33 | `POST /rounds/{roundId}/ready` | Round | Organizer | `Round` (state) | Transition test | **Built** — `RoundService.ready()`. Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState` |
+| 34 | `POST /rounds/{roundId}/start` | Round | Organizer | `Round` (state) | Transition test | **Built** — `RoundService.start()`. Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState` |
+| 35 | `POST /rounds/{roundId}/pause` | Round | Organizer | `Round` (state) | Transition test | **Built** — `RoundService.togglePause()`. Tested in `AttemptFlowTest.roundPausePreventsNewSelfTimedStartsButDoesNotAffectAlreadyRunningState` |
+| 36 | `POST /rounds/{roundId}/review` | Round | Organizer (or system-triggered on full resolution) | `Round` (state) | REVIEW-after-all-resolved test (R34) | **Built** — `RoundService.review()`: blocks if any non-voided attempt is still `PENDING`. Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState` |
+| 37 | `POST /rounds/{roundId}/close` | Round | Organizer | `Round` (state) | Close-blocked-by-pending test (PA09) | **Built** — `RoundService.close()`: blocks if any `PENDING` correction exists for the round's attempts. Tested in `RoundLifecycleTest.roundMovesThroughEveryStateInOrderAndRejectsSkippingAState`; close-blocked-by-pending-correction case in `CorrectionFlowTest` |
+| 38 | `GET /rounds/{roundId}/control-state` | Control room | Staff, role-filtered | `Round`, `Attempt`, `EventEntrant` snapshot | Role-filtered-snapshot test (S08) | Not built — M3 scope (Tournament Control real-time control room; this milestone built the underlying `GET /rounds/{roundId}/attempts` staff view instead, row 66, which is the same underlying data without the real-time control-room composition) |
+| 39 | `GET /attempts/{attemptId}` | Attempt | Role-filtered (judge, organizer, or own entrant) | `Attempt` | Authorized-fields-only test | **Built** — `AttemptService.getAuthorized()`: staff first, falls back to guest-entrant ownership. Tested in `AttemptFlowTest.judgeModeRecordsAResultAndEveryEntryCreatesARevision` |
+| 40 | `POST /attempts/{attemptId}/start` | Attempt | Competitor, phone mode only, own credential, current attempt | `Attempt` (state) | Mode-gated-control test (R38) | **Built** — `AttemptService.start()`: 403 in judge mode (no such control exists for a competitor in that mode). Tested in `AttemptFlowTest.judgeModeRecordsAResultAndEveryEntryCreatesARevision` (negative case), `.selfTimedModeLetsCompetitorStartStopSubmitAndIsIdempotent` (positive case) |
+| 41 | `POST /attempts/{attemptId}/stop` | Attempt | Competitor, phone mode only, own credential | `Attempt` (state) | Mode-gated-control test | **Built** — `AttemptService.stop()`. Tested in `AttemptFlowTest.selfTimedModeLetsCompetitorStartStopSubmitAndIsIdempotent` |
+| 42 | `POST /attempts/{attemptId}/submit` | Attempt | Competitor, phone mode | `Attempt` (rawTimeMs, penalty, resultSource=self-timed) | Idempotency test (DUPLICATE_ATTEMPT); penalty-validation test | **Built** — `AttemptService.submitSelfTimed()`: identical resubmit is a no-op success; a different payload on an already-`ACCEPTED` attempt is `409 DUPLICATE_ATTEMPT`; raw time validated to 1–9,999,999ms. Tested in `AttemptFlowTest.selfTimedModeLetsCompetitorStartStopSubmitAndIsIdempotent`, `.dnsAndDnfAreRejectedWithARawTimeAndOkRequiresOneWithinBounds` |
+| 43 | `PUT /attempts/{attemptId}/judge-result` | Attempt | Judge | `Attempt`, `ResultRevision` | Judge-only test; revision-recorded test (R09) | **Built** — `AttemptService.recordJudgeResult()`: every call (including the first) inserts a `ResultRevision`; `expectedVersion` mismatch returns `409 STALE_VERSION`. Tested in `AttemptFlowTest.judgeModeRecordsAResultAndEveryEntryCreatesARevision`, `RoundLifecycleTest.judgeAssignedToTheEventCannotConfigureRoundsButCanEnterResults` |
 | 44 | `POST /rounds/{roundId}/scramble-batches` | Scramble | Organizer | `ScrambleBatch`, `ScrambleSecret` | Batch-generation test; counts/IDs-only-response test (R46) | Not built — M4 scope |
 | 45 | `GET /scramble-assignments/{id}/official-view` | Scramble | Assigned scrambler/judge only | `ScrambleAssignment` | Role-gated-view test (R41) | Not built — M4 scope |
 | 46 | `POST /scramble-assignments/{id}/reveal` | Scramble | Assigned official | `ScrambleAssignment` (revealedAt), `AuditEvent` | Audit-on-reveal test; idempotent-no-bulk-reveal test | Not built — M4 scope |
@@ -282,10 +296,10 @@ the real-time channel as a 63rd row at the end. This replaces the earlier underc
 | 48 | `POST /scramble-assignments/{id}/mark-checked` | Scramble | Assigned scrambler/judge, optional independent checker | `ScrambleAssignment` (actor/time) | Checked-audit test | Not built — M4 scope |
 | 49 | `POST /scramble-assignments/{id}/spoil` | Scramble | Organizer/Judge | `ScrambleAssignment`, replacement assignment from extras | Spoil-consumes-sequence test; replacement-audit test (R45) | Not built — M4 scope |
 | 50 | `GET /guest/.../current-scramble` *(path abbreviated with ellipsis in `08`; implementation must give it a concrete path such as `/guest/events/{eventId}/attempts/{attemptId}/current-scramble`)* | Scramble | Self-scramble-mode competitor, own credential, only when attempt unlocked | `ScrambleAssignment` | Future-sequence-hidden test (R42) | **Deliberately unresolved** — not built, no concrete path chosen in M1 per explicit instruction; left for whoever builds M4 to decide alongside the rest of the scramble vault. See DECISIONS.md "M1 implementation decisions." |
-| 51 | `POST /attempts/{attemptId}/correction-requests` | Correction | Competitor, own attempt | `CorrectionRequest` | Category/note validation test (P06) | Not built — M2 scope |
-| 52 | `GET /events/{eventId}/corrections` | Correction | Organizer/Judge | `CorrectionRequest` | Authorized-list test (S10) | Not built — M2 scope |
-| 53 | `POST /corrections/{id}/decision` | Correction | Organizer | `CorrectionRequest`, `ResultRevision` | Decision-preserves-original-value test (R40) | Not built — M2 scope |
-| 54 | `GET /rounds/{roundId}/standings` | Results | Authorized staff (full detail); published-only for others | Computed standings (from `Attempt`) | Provisional-flag test (PA08) | Not built — M2/M5 scope |
+| 51 | `POST /attempts/{attemptId}/correction-requests` | Correction | Competitor, own attempt | `Correction` | Category/note validation test (P06) | **Built** — `CorrectionService.create()`: own attempt only, requires the attempt already has a non-`PENDING` result. **Authority note:** `08`'s endpoint name says "correction requests"; decisions are restricted to Organizer/Owner only per DECISIONS.md OD16 (genuine `00`/`08`-vs-`02` conflict, flagged there, not silently resolved). Tested in `CorrectionFlowTest.competitorCanRequestACorrectionOnlyForTheirOwnAttempt` |
+| 52 | `GET /events/{eventId}/corrections` | Correction | Organizer/Judge | `Correction` | Authorized-list test (S10) | **Built** — `CorrectionService.listForEvent()`. Tested in `CorrectionFlowTest.onlyOrganizerCanDecideACorrectionNotJudgeOrStranger` (list/read access alongside the decision check) |
+| 53 | `POST /corrections/{id}/decision` | Correction | Organizer (see OD16) | `Correction`, `ResultRevision` | Decision-preserves-original-value test (R40) | **Built** — `CorrectionService.decide()`: `ACCEPT_NO_RETRY` voids the attempt but preserves the original raw/penalty/status in `ResultRevision` history; `ACCEPT_RETRY` additionally allocates a replacement attempt; `expectedVersion` mismatch is `409`. Tested in `CorrectionFlowTest.acceptNoRetryVoidsTheAttemptButPreservesTheOriginalValueInHistory`, `.acceptRetryVoidsAndCreatesAReplacementAttempt`, `.onlyOrganizerCanDecideACorrectionNotJudgeOrStranger` |
+| 54 | `GET /rounds/{roundId}/standings` | Results | Authorized staff (full detail); published-only for others | Computed standings (from `Attempt`) | Provisional-flag test (PA08) | **Built for staff** — `StandingsService.compute()`: groups attempts by entrant, scores via `ScoringEngine`, ranks via `RankingService`, `provisional = round.state != CLOSED`. Public/published-only view is **not built** — that is M5 scope (public display/publishing). Tested in `StandingsIntegrationTest.revisingAJudgeResultRecalculatesStandings`, `.standingsAreAuthorizedStaffOnlyNotCompetitor` |
 | 55 | `POST /rounds/{roundId}/advancement/preview` | Advancement | Organizer | `Round`, `EventEntrant` | Preview-math-visible test (V11, V12) | Not built — M5 scope |
 | 56 | `POST /rounds/{roundId}/advancement/commit` | Advancement | Organizer | `Round`, next-round `EventEntrant` slots, `AuditEvent` | Idempotency/version-conflict test (R36) | Not built — M5 scope |
 | 57 | `POST /events/{eventId}/publish` | Results/Display | Organizer | `Event` (publishedAt), `PublicSnapshot` | Publish test (S12) | Not built — M5 scope |
@@ -297,6 +311,10 @@ the real-time channel as a 63rd row at the end. This replaces the earlier underc
 | 63 | Real-time event-room subscription (SSE or WebSocket) | Real-time | Authenticated staff or guest, event-scoped subscription; public channel is a separate, published-fields-only stream | Minimal state-delta payloads (`{eventId, eventVersion, eventType, resourceId, changedFields, occurredAt}`) | No-scramble-in-payload test; public-channel-published-fields-only test; rate-limit/unsubscribe-on-scope-change test (R46) | Not built — M3 scope (Tournament Control needs this) |
 | 64 | `GET /events/{eventId}/entrants` *(minimal addition, not in `08`'s enumerated list)* | Roster | Organizer/staff, org membership required | `EventEntrant` | Role-authorization test (`RosterAuthorizationTest`); 404-for-non-member test | **Built** — `RosterAuthorizationTest`, `EventLifecycleAndJoinTest`. See `RosterController`'s class comment and DECISIONS.md. |
 | 65 | `POST /auth/email/verify` *(implemented at M1; documented in `08`'s endpoint list)* | Auth | Public, possession of the emailed token **and** a chosen password (the password is set here, not at registration — see DECISIONS.md); rate-limited 10/15min per client; CSRF-exempt like register/login (no prior session cookie to echo) | `PendingRegistration` (consumed/deleted), `User` (created here, not at registration) | Full happy-path test (`AuthFlowTest.registerVerifyThenLoginWorks`); single-use-token test (`AuthFlowTest.verificationTokenIsSingleUse`); hijack-prevention test (`AuthFlowTest.aSecondRegistrationForAnUnverifiedEmailInvalidatesTheFirstLinkRatherThanStealingIt`); rate-limit test (`AuthFlowTest.emailVerificationIsRateLimited`). Also verified against a real running browser with Playwright (register → check-your-email → click link → set password → dashboard → logout → login). | **Built and tested** |
+| 66 | `GET /api/v1/events/{eventId}/rounds`, `GET /api/v1/rounds/{roundId}` *(M2 minimal additions, not in `08`'s enumerated list)* | Round | Staff (judge or organizer) | `Round` | List/get-scoped test | **Built** — `RoundService.listForEvent()`/`getForStaff()`. Needed by the organizer rounds screen and judge entry UI, which otherwise have no way to render round state. Tested throughout `RoundLifecycleTest` (every test reads round state back via `GET /rounds/{roundId}`) |
+| 67 | `GET /api/v1/rounds/{roundId}/attempts`, `GET /api/v1/guest/events/{eventId}/me/attempts` *(M2 minimal additions, not in `08`'s enumerated list)* | Attempt | Staff (round attempts); competitor, own attempts only, across the whole event | `Attempt` | Authorized-list test; own-entrant-only field test | **Built** — `AttemptService.listForRoundAuthorized()`/`listOwnAttempts()`. The judge-entry table and the competitor's personal-results view both need a list, not just single-attempt `GET`. Tested in `AttemptFlowTest.competitorCanListTheirOwnAttemptsAcrossTheEvent` (cross-entrant isolation: another guest in the same event sees an empty list) |
+| 68 | `GET /api/v1/attempts/{attemptId}/revisions` *(M2 minimal addition, not in `08`'s enumerated list)* | Attempt | Staff (judge or organizer) | `ResultRevision` | Revision-history-readable test (R09) | **Built** — `AttemptService.history()`. `00` §9 requires an immutable revision audit trail; without a read endpoint it would be unobservable. Tested in `AttemptFlowTest.judgeModeRecordsAResultAndEveryEntryCreatesARevision` |
+| 69 | `POST/GET/DELETE /api/v1/events/{eventId}/staff-assignments` *(M2 minimal addition, not in `08`'s enumerated list)* | Event staff | Organizer-only to assign/remove; staff to list | `EventStaffAssignment` | Assign/list/remove test; judge-cannot-self-assign test | **Built** — `EventStaffController`/`EventStaffAssignmentRepository`. `00`/`08` require a judge role scoped independently of org membership (see DECISIONS.md "Judge role modeled as…"), which needs minimal CRUD to actually use. Tested in `RoundLifecycleTest.judgeAssignedToTheEventCannotConfigureRoundsButCanEnterResults` (assignment via this endpoint, then exercised) |
 
 Cross-cutting API conventions that apply to every route above (idempotency keys on writes,
 optimistic concurrency via `expectedVersion`/`If-Match`, stable error codes, cursor pagination on
@@ -319,9 +337,11 @@ This document maps:
 - all **62** distinct REST routes named in `08` plus the 1 real-time subscription channel (**63
   API surfaces** in total — see section G for the corrected count and the full per-route table;
   the figure of "51" in the first draft of this document was an undercount from not expanding
-  every comma-separated route group, and has been corrected here), plus **2 minimal, documented
+  every comma-separated route group, and has been corrected here), plus **6 minimal, documented
   additions** not itemized in `08`'s original list (row 64, roster read; row 65, email
-  verification — both now also noted directly in `08` itself, not just here),
+  verification; rows 66–69, added at M2 — round list/get, attempt list views, revision history
+  read, and event-staff-assignment CRUD — see section G rows 66–69 and DECISIONS.md for why each
+  was needed),
 - all **28** release-acceptance checklist items plus the event-day/deployment/sign-off process
   items in `12`.
 
@@ -355,4 +375,16 @@ narrative intent becomes testable.
   rationale and test evidence. No route was added or removed; only the request/response contract
   and the "Built" status of row 65 changed (from "partially tested" to fully tested with a
   happy-path case now that tests capture the real token via a test-only `MailService`).
-  not just from this traceability table.
+- **M2 (competition engine):** updated rows 24–54 (roster management, round lifecycle, attempt
+  lifecycle, correction workflow, standings) from "Not built — M2 scope" to "Built" with actual
+  test-method evidence; updated section C rows R04, R09, R14–R18, R19–R24, R33–R40 and section D's
+  full 19-item scoring table from planned to built/tested; updated section E rows P04–P07, S05,
+  S06, S09–S11 the same way; added rows 66–69 (round list/get, attempt list views, revision-history
+  read, event-staff-assignment CRUD) for minimal additions beyond `08`'s enumerated list, and a note
+  for the `rounds/[roundId]/standings` screen (not one of `07`'s 22 enumerated screens). Rows/items
+  explicitly **not** changed to "Built" (still correctly "Not built"): R36/row 36's advancement
+  commit-and-apply (preview/commit as an operational feature — only the pure math, V11/V12, is
+  built), S07/S08/S13 (scramble station, Tournament Control, public display — M3/M4/M5 scope), and
+  rows 38, 44–50, 55–63 (control-room snapshot, scramble-vault routes, advancement/publish/export/
+  public-display routes, real-time channel) — all genuinely out of this milestone's stated scope,
+  not silently skipped.

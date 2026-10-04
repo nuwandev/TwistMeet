@@ -4,18 +4,19 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
-## Status: M1 complete — Product foundation + project setup
+## Status: M2 complete — Competition engine
 
-M0 (repository inspection and planning) is complete and recorded below unchanged. M1 is now also
-complete: repository scaffolding, CI, staff auth, organization membership, tenant isolation,
-event lifecycle foundation, and guest join. See "M1 implementation decisions" below for what M1
-adds, and `M0-REPORT.md` §8 for the full completion summary (commands run, what works end to end,
-bugs found and fixed, remaining gaps).
+M0 and M1 are complete and recorded below unchanged. M2 is now also complete: ruleset
+versioning/snapshots, round setup/lifecycle, the attempt state machine (judge and self-timed
+modes), roster remove-vs-withdraw, judge result entry with append-only revisions, authorized
+correction requests/decisions, the pure scoring engine (full conformance-vector coverage), and
+the standings/judge/correction-queue UI. See "M2 implementation decisions" below for what M2 adds
+and what remains explicitly out of scope (scramble vault/generation, advancement wiring,
+publishing, public display, export — all deferred to later milestones per instruction).
 
 Two M1 follow-up passes since then, both recorded further down this file: closing a residual
 auth-enumeration/account-hijack gap by redesigning registration as double opt-in, and modernizing
-the stack to Java 25 LTS / Spring Boot 4.1.1 / PostgreSQL 18.6 / Node 24 LTS / Next.js 16.3.8. M2
-has not been started.
+the stack to Java 25 LTS / Spring Boot 4.1.1 / PostgreSQL 18.6 / Node 24 LTS / Next.js 16.3.8.
 
 ## Stack decision
 
@@ -388,6 +389,131 @@ the pooled-vs-direct-connection guidance to follow when one is created). **This 
 (OD15 in the register below)**, not a silent gap: creating (or choosing an existing) Neon
 PostgreSQL 18 project for this app is left to the product owner/engineering lead, outside this
 session's standing constraints.
+
+## M2 implementation decisions
+
+Additions, conflict resolutions, and simplifications made while building M2 (competition engine),
+per `00` §12. None of these change a product requirement or default without a documented reason;
+they are either genuine spec conflicts (flagged as such) or implementation choices the specs left
+unspecified.
+
+- **Genuine spec conflict — correction-decision authority (needs confirmation, resolved
+  conservatively for now).** `00` §5 and `08`'s correction-decision endpoint both say decisions are
+  **organizer-only**. `02-rules-and-integrity.md`'s narrative prose instead describes "judge or
+  organizer" as able to decide a correction request. These directly conflict. Per `00` §12's own
+  precedence rule (the authoritative contract and its directly-referenced data/API contract outrank
+  looser narrative text elsewhere), `CorrectionService.decide()` restricts decisions to
+  **Organizer/Owner only** — a judge can create nothing-to-do-with-deciding-their-own-case
+  situation, since judges already enter results and allowing the same judge to also decide
+  corrections on their own entries would weaken the separation the correction workflow exists to
+  provide. **This needs explicit confirmation before M3** if a different authority split (e.g.
+  judges deciding corrections on rounds they judged, organizers deciding the rest) was actually
+  intended — flagged in the open decisions register as OD16.
+- **Round creation is permitted in DRAFT, REGISTRATION_OPEN, and REGISTRATION_LOCKED event states,
+  not read literally as "draft event only."** `08` describes round setup as a draft-event action.
+  Taken literally, that would make it impossible to ever set up rounds for an event that has
+  already opened registration (which is the normal flow — registration opens before the event day,
+  rounds are set up ahead of or during the event). `RoundService.create()`/`update()` therefore
+  reject only `LIVE`/`COMPLETE`/`CANCELLED` events, not `REGISTRATION_OPEN`/`_LOCKED`. Documented
+  here rather than silently reinterpreting the contract; this reading is consistent with `07`'s
+  screen spec, which shows round setup happening on the same event-detail screen used throughout
+  registration.
+- **Judge role modeled as a new event-scoped `EventRole.JUDGE`, independent of org membership.**
+  M1 only has two org-wide roles (`OWNER`, `ORGANIZER`), both with full access to every event in the
+  organization. `00`/`08` require a judge role that can enter results and view rosters/standings
+  for one event but has none of an organizer's configuration/roster-management/correction-decision
+  authority, and a judge need not be an org member at all (e.g. a volunteer judge for one event).
+  Added `EventStaffAssignment` (eventId, userId, role, assignedAt) as its own table/entity,
+  deliberately separate from `OrgMembership`, with minimal CRUD endpoints
+  (`EventStaffController`, organizer-only to assign/remove) modeled on the M1 precedent of adding
+  a minimal roster-list endpoint not literally enumerated in `08`. `TenantAccessService` gained
+  `requireJudgeOrOrganizer()`, which accepts org organizer/owner OR an `EventStaffAssignment` with
+  role `JUDGE` for that specific event; both still 404 (not 403) for a user with no relationship
+  to the event's org or event, preserving the existing anti-enumeration pattern.
+- **Self-timed (phone-casual) submissions auto-accept; no judge confirmation step.** `00` §3
+  describes phone-casual mode as judge-free by design (the whole point is no judge is present), but
+  does not explicitly state whether a submitted self-timed result needs any further confirmation
+  step before becoming official. Since there is no judge in this mode, requiring confirmation would
+  need some other actor (the organizer, after the fact) to confirm every single self-timed result,
+  which defeats the mode's purpose of being casual and low-friction. `AttemptService.submitSelfTimed()`
+  therefore moves the attempt directly to `ACCEPTED` on submission — the safer/simpler default per
+  `00` §12. The correction-request flow remains available afterward as the mechanism for a
+  competitor to flag a mistake, which is the documented recourse for errors in this mode.
+- **`AdvancementCalculator` (top-N / top-percent) is built and unit-tested but deliberately not
+  wired to any controller or round-lifecycle transition.** `09` specifies the advancement math;
+  `00`'s task scope for this milestone explicitly excludes "advancement" as an operational feature
+  (the actual act of advancing entrants between rounds). Building the pure calculation now (it has
+  no dependency on anything excluded) while leaving it unconnected avoids re-deriving the same
+  tie-inclusion logic again at the milestone that actually wires it up, without claiming advancement
+  itself is implemented. Not claimed as a working feature anywhere in `TRACEABILITY.md`.
+- **Roster remove vs. withdraw, split on whether any attempt row exists for the entrant.**
+  `00`/`08` distinguish "remove" (before attempts — the entrant was never really part of the
+  competition) from "withdraw" (after attempts exist — the entrant's existing results must be
+  preserved for scoring/audit integrity, not erased). `RosterService.remove()` is a hard delete,
+  permitted only when `!attemptRepository.existsByEntrantId(entrantId)`; otherwise it returns `409`
+  with a message directing the caller to withdraw instead. `withdraw()` is a soft, idempotent state
+  change (`EventEntrant.withdraw()`) that leaves all existing attempts and results intact. This
+  mirrors the existing append-only philosophy already used for `AuditEvent`/`ResultRevision`:
+  once competition data exists, nothing destroys it outright.
+- **Judge result entry always creates a `ResultRevision`, including the first entry for an
+  attempt.** `00` §9 requires an immutable audit history of every result change. Rather than
+  special-casing "first entry, no revision" vs. "correction, revision," every call to
+  `AttemptService.recordJudgeResult()` inserts one `ResultRevision` capturing the previous (possibly
+  null/PENDING) and new raw time/penalty/status, so the full history — including the very first
+  entry — is reconstructible from one table with no special case. Competitors have no endpoint that
+  can write to `Attempt`'s result fields directly; only `recordJudgeResult` (judge/organizer) and
+  `submitSelfTimed` (the entrant's own self-timed attempt only) can.
+- **Self-timed resubmission is idempotent on identical payload, `409 DUPLICATE_ATTEMPT` on a
+  different payload to an already-`ACCEPTED` attempt.** Neither document specifies retry semantics
+  for a competitor's own submission (e.g. a flaky connection causing a double-tap). Treating an
+  identical repeat as a no-op success avoids punishing a harmless retry, while a *different* payload
+  to an already-accepted attempt is rejected rather than silently overwritten — competitors must not
+  be able to directly edit an official result (`00` §9), and allowing a changed resubmit to silently
+  replace the first would violate that even in self-timed mode. A genuine mistake in self-timed mode
+  goes through the correction-request flow instead, same as judge mode.
+- **Optimistic-concurrency (`expectedVersion`) required on judge-result entry and correction
+  decisions, returning `409 STALE_VERSION` on mismatch.** `00`/`08` require safe concurrent editing;
+  JPA `@Version` (already the M1 pattern for `EventEntrant` etc.) is reused rather than introducing
+  a separate idempotency-key store, since the relevant operations are inherently state-transition
+  checks (a judge correcting a result they just viewed; an organizer deciding a request) rather than
+  side-effecting network calls that need deduplication independent of state.
+- **Minimal additions beyond `08`'s literally enumerated M2 endpoint list**, following the same
+  precedent `08` itself permits per `00` §12 ("add the obvious supporting endpoint, document it"):
+  - `GET /api/v1/events/{eventId}/rounds` and `GET /api/v1/rounds/{roundId}` (staff) — `08` specifies
+    round mutation/lifecycle endpoints but not an explicit list/get, which organizer/judge UIs need
+    to render the rounds screen at all.
+  - `GET /api/v1/rounds/{roundId}/attempts` (staff) and `GET /api/v1/guest/events/{eventId}/me/attempts`
+    (competitor, own attempts only, across the whole event) — needed for the judge-entry table and
+    the competitor's own "my results" view respectively; both are read-only views over data the
+    caller already has access to via other means, not a new capability.
+  - `GET /api/v1/attempts/{attemptId}/revisions` (staff) — surfaces the append-only revision history
+    required by `00` §9; without a read endpoint the audit trail would be unobservable.
+  - `POST/GET/DELETE /api/v1/events/{eventId}/staff-assignments` (organizer-only) — the minimal CRUD
+    needed to actually assign the new `EventRole.JUDGE`, which has no equivalent in M1's org-role
+    model (see above).
+- **Ruleset snapshot captured once, at `openRegistration()`, not re-captured per round.** `00`/`08`
+  require an immutable ruleset snapshot so later rule changes never retroactively alter a running or
+  completed event's scoring. `RulesetSnapshot` (rulesetVersion, puzzleType, timerMode,
+  scramblePolicy, snapshotAt) is built once and persisted as JSON on `Event` the first time
+  registration opens (idempotent — never overwritten if already set), then every `Round` stores the
+  same `rulesetVersion` at creation. Since this milestone ships only `RulesetVersion.V1`, there is
+  currently nothing for a snapshot to diverge from in practice; the mechanism exists so a future
+  `V2` cannot silently change how an already-open event scores.
+- **Scoring engine kept entirely free of Spring/JPA dependencies** (`com.twistmeet.api.scoring`
+  package has zero framework imports), per `00`'s determinism/testability requirement for the
+  scoring module specifically. `ExactValue` (numerator/denominator rational arithmetic with
+  cross-multiplication comparison) avoids floating-point rounding entirely when computing MO3/AO5
+  averages, then rounds the final result half-up to the nearest 10ms exactly once, per `09`. A
+  single generic sort-and-trim algorithm (discard-count parameter: 0 for MO3, 1 for AO5) is used for
+  both formats rather than two special-cased implementations — DNF-propagation behavior (a DNF
+  counts as the worst possible value for sorting/discarding purposes) falls out of the generic
+  algorithm rather than being hand-coded per format, verified against every `09` conformance vector.
+
+## Open decisions register (M2 addition)
+
+| ID | Decision | Category | Owner | Needed by | Blocks that milestone? | Safe default (if any) | Source |
+|---|---|---|---|---|---|---|---|
+| OD16 | Correction-decision authority: organizer-only (current implementation, per `00`/`08`) vs. judge-or-organizer (per `02`'s narrative text) | Product | Product owner | Before M3 widens correction/judge workflows further | No — current conservative reading does not block M2 or M3 start, but should be confirmed before building more judge-facing correction tooling | Organizer/Owner only (implemented now, per `00` §12 precedence) | `00` §5; `08` correction-decision endpoint; `02` narrative text (conflicting) |
 
 ## Deviations from documents
 
