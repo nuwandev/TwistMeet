@@ -32,6 +32,10 @@ public class EventEntrant {
   @Column(nullable = false)
   private EntrantStatus status = EntrantStatus.ACTIVE;
 
+  @Enumerated(EnumType.STRING)
+  @Column(name = "check_in_state", nullable = false)
+  private CheckInState checkInState = CheckInState.NOT_CHECKED_IN;
+
   @Column(name = "joined_at", nullable = false)
   private Instant joinedAt = Instant.now();
 
@@ -60,11 +64,27 @@ public class EventEntrant {
     return status;
   }
 
+  public CheckInState getCheckInState() {
+    return checkInState;
+  }
+
   public Instant getJoinedAt() {
     return joinedAt;
   }
 
   public long getVersion() {
     return version;
+  }
+
+  public void rename(String displayName) {
+    this.displayName = displayName;
+  }
+
+  public void checkIn() {
+    this.checkInState = CheckInState.CHECKED_IN;
+  }
+
+  public void withdraw() {
+    this.status = EntrantStatus.WITHDRAWN;
   }
 }

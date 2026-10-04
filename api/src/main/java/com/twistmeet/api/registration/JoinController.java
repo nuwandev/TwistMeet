@@ -4,24 +4,26 @@ import com.twistmeet.api.common.ApiException;
 import com.twistmeet.api.common.AuditService;
 import com.twistmeet.api.common.SecretTokens;
 import com.twistmeet.api.common.SimpleRateLimiter;
+import com.twistmeet.api.competition.AttemptRepository;
+import com.twistmeet.api.competition.AttemptState;
 import com.twistmeet.api.event.Event;
 import com.twistmeet.api.event.EventRepository;
 import com.twistmeet.api.event.EventState;
 import com.twistmeet.api.registration.RegistrationDtos.EntrantView;
 import com.twistmeet.api.registration.RegistrationDtos.JoinRequest;
 import com.twistmeet.api.registration.RegistrationDtos.JoinResponse;
+import com.twistmeet.api.registration.RegistrationDtos.UpdateEntrantRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import org.springframework.http.ResponseCookie;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -38,6 +40,7 @@ public class JoinController {
   private final GuestAuthResolver guestAuthResolver;
   private final AuditService auditService;
   private final SimpleRateLimiter rateLimiter;
+  private final AttemptRepository attemptRepository;
 
   public JoinController(
       EventRepository eventRepository,
@@ -45,13 +48,15 @@ public class JoinController {
       GuestCredentialRepository credentialRepository,
       GuestAuthResolver guestAuthResolver,
       AuditService auditService,
-      SimpleRateLimiter rateLimiter) {
+      SimpleRateLimiter rateLimiter,
+      AttemptRepository attemptRepository) {
     this.eventRepository = eventRepository;
     this.entrantRepository = entrantRepository;
     this.credentialRepository = credentialRepository;
     this.guestAuthResolver = guestAuthResolver;
     this.auditService = auditService;
     this.rateLimiter = rateLimiter;
+    this.attemptRepository = attemptRepository;
   }
 
   @PostMapping("/api/v1/join/{joinCode}")
@@ -75,7 +80,8 @@ public class JoinController {
                 () -> ApiException.joinCodeInvalid("Join code is invalid, expired, or closed"));
 
     String displayName = DisplayNamePolicy.normalize(request.displayName());
-    String disambiguated = disambiguate(event.getId(), displayName);
+    String disambiguated =
+        DisplayNamePolicy.disambiguate(entrantRepository.findByEventId(event.getId()), displayName);
 
     EventEntrant entrant = entrantRepository.save(new EventEntrant(event.getId(), disambiguated));
 
@@ -106,19 +112,31 @@ public class JoinController {
     return EntrantView.of(entrant);
   }
 
-  private String disambiguate(UUID eventId, String displayName) {
-    List<EventEntrant> existing = entrantRepository.findByEventId(eventId);
-    Set<String> taken =
-        existing.stream().map(EventEntrant::getDisplayName).collect(Collectors.toSet());
-    if (!taken.contains(displayName)) {
-      return displayName;
+  /** 08 row 24: "display name only before start" — before any of the entrant's attempts begin. */
+  @PatchMapping("/api/v1/guest/events/{eventId}/me")
+  @Transactional
+  public EntrantView updateMe(
+      @PathVariable UUID eventId,
+      HttpServletRequest request,
+      @Valid @RequestBody UpdateEntrantRequest body) {
+    EventEntrant entrant = guestAuthResolver.requireEntrantForEvent(request, eventId);
+    boolean anyStarted =
+        attemptRepository.findByEntrantId(entrant.getId()).stream()
+            .anyMatch(a -> a.getState() != AttemptState.PENDING);
+    if (anyStarted) {
+      throw ApiException.invalidTransition(
+          "Display name can no longer be changed once attempts have started");
     }
-    int suffix = 2;
-    String candidate;
-    do {
-      candidate = displayName + " (" + suffix + ")";
-      suffix++;
-    } while (taken.contains(candidate));
-    return candidate;
+    String displayName = DisplayNamePolicy.normalize(body.displayName());
+    UUID entrantId = entrant.getId();
+    List<EventEntrant> others =
+        entrantRepository.findByEventId(eventId).stream()
+            .filter(e -> !e.getId().equals(entrantId))
+            .toList();
+    entrant.rename(DisplayNamePolicy.disambiguate(others, displayName));
+    entrant = entrantRepository.save(entrant);
+    auditService.recordGuestAction(
+        eventId, entrant.getId(), "GUEST_RENAMED_SELF", "EventEntrant", entrant.getId().toString());
+    return EntrantView.of(entrant);
   }
 }
