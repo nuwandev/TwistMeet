@@ -39,6 +39,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
+    // OD01 (DECISIONS.md): the official WCA scramble program — the strongest available evidence
+    // of a "reviewed, maintained, puzzle-state-correct" 3x3x3 generator per 00 §7/02. GPL-3.0;
+    // see DECISIONS.md for the SaaS-deployment license analysis. lib-scrambles pulls in
+    // scrambler-threephase/scrambler-min2phase (runtime) for the actual 3x3x3 algorithm.
+    implementation("org.worldcubeassociation.tnoodle:lib-scrambles:0.20.0")
 
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")

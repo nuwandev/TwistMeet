@@ -6,5 +6,9 @@ package com.twistmeet.api.event;
  * EventStaffAssignment}.
  */
 public enum EventRole {
-  JUDGE
+  JUDGE,
+  // 00 §5: "Scrambler: assigned scramble and 3D guide; mark physical preparation checked; no
+  // results or roster access unless also assigned another role." Added at M4 — nothing before
+  // this milestone needed a distinct scrambler role.
+  SCRAMBLER
 }

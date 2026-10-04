@@ -54,4 +54,8 @@ public class ApiException extends RuntimeException {
   public static ApiException badRequest(String code, String message) {
     return new ApiException(HttpStatus.BAD_REQUEST, code, message);
   }
+
+  public static ApiException scrambleNotAvailable(String message) {
+    return new ApiException(HttpStatus.FORBIDDEN, "SCRAMBLE_NOT_AVAILABLE", message);
+  }
 }
