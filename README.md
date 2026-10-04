@@ -5,16 +5,20 @@ brand (see `DECISIONS.md`). The controlling specification is `product-docs/00-au
 read `product-docs/README.md` first. Build status, decisions, and traceability live in
 `M0-REPORT.md`, `DECISIONS.md`, and `TRACEABILITY.md` at the repo root.
 
-This is **Milestone 3** (organizer and competitor experience): the event creation wizard,
-Tournament Control, judge-entry validation/undo, the competitor waiting room's explicit
-lifecycle/connection-loss states, and a shared loading/empty/error/offline/confirm component set
-— on top of Milestone 2's competition engine (round setup/lifecycle, the attempt state machine
-for both physical-judge and phone-casual modes, roster management, judge result entry with
-append-only correction history, and the scoring/ranking engine) and Milestone 1's staff auth,
-organizations, tenant isolation, event lifecycle, and guest join. Scramble generation/vault,
-advancement as an operational feature, publishing, public display, and export are not built yet
-— see `TRACEABILITY.md` for what's implemented vs. planned per milestone, and `DECISIONS.md` for
-the M3 implementation decisions.
+This is **Milestone 5** (advancement, publishing, public display, event history, and CSV export):
+advancement preview/commit (reusing the pure scoring engine), publish/unpublish with a rotating
+public link, unauthenticated public event/standings display, organization event history with
+search/filter, and CSV export with CSV-injection mitigation — on top of Milestone 4's scramble
+controls (versioned generation, encrypted vault storage, role-scoped reveal, the 3D move guide),
+Milestone 3's organizer and competitor experience (event creation wizard, Tournament Control,
+judge-entry validation/undo, the competitor waiting room's explicit lifecycle/connection-loss
+states), Milestone 2's competition engine (round setup/lifecycle, the attempt state machine for
+both physical-judge and phone-casual modes, roster management, judge result entry with
+append-only correction history, and the scoring/ranking engine), and Milestone 1's staff auth,
+organizations, tenant isolation, event lifecycle, and guest join. See `TRACEABILITY.md` for what's
+implemented vs. planned per milestone, and `DECISIONS.md` for the M5 implementation decisions and
+the deliberately deferred items (the optional tie-break attempt, a `PublicSnapshot` cache table,
+public name masking, advancement rollback, and S14's copy-event/retention-deletion).
 
 ## Repository layout
 
@@ -128,8 +132,9 @@ phone-casual modes, judge result entry with append-only revision history (now wi
 validation, a saved receipt, and an undo window), competitor correction requests with
 organizer-only decisions (category selection, request-ID confirmation, required decision reason),
 the pure scoring/ranking engine (every `09` conformance vector and property test), a staff-only
-standings view, an event-creation wizard, a Tournament Control screen, and a competitor waiting
-room with explicit lifecycle and connection-loss states are built and tested. Scramble
-generation/vault, advancement as an operational feature (the pure top-N/top-percent math is
-built but not wired to any endpoint), publishing, public display, and CSV export are not built
-yet (milestones M4–M5).
+standings view, an event-creation wizard, a Tournament Control screen, a competitor waiting room
+with explicit lifecycle and connection-loss states, scramble generation/vault with role-scoped
+reveal and the 3D move guide (M4), advancement preview/commit, publish/unpublish with public
+event/standings display, organization event history, and CSV export (M5) are built and tested.
+Deferred items are recorded in `DECISIONS.md`'s M4/M5 implementation-decisions sections rather
+than silently skipped.

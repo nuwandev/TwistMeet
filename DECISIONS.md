@@ -4,6 +4,21 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
+## Status: M5 complete — Advancement, publishing, public display, history, export
+
+M0–M4 are complete and recorded below unchanged (M4's scramble-secrecy verification gap — error
+responses, logs, caches, exports, unauthorized staff views — was closed before M5 started; see
+"M5 implementation decisions: M4 scramble-secrecy verification gap, closed" below for the one real
+exposure found and fixed). M5 is now also complete: advancement preview/commit (reusing the pure
+`AdvancementCalculator`/`RankingService`/`ScoringEngine` unchanged), publish/unpublish with a
+rotating public link, unauthenticated public event/standings display, organization event history
+with search/filter, and CSV export with CSV-injection mitigation. TNoodle's GPL-3.0 SaaS-vs-
+distribution licensing question (OD01 resolution, below) remains an explicit open launch-review
+item — not resolved by this milestone, not silently dropped, and the generator/its license were
+not touched. See "M5 implementation decisions" below for the full list and what remains deferred
+(the optional tie-break attempt, a `PublicSnapshot` cache table, public name masking, advancement
+rollback, S12's dedicated tabs, S14's copy-event/retention-deletion).
+
 ## Status: M4 complete — Scramble controls and the 3D move guide
 
 M0–M3 are complete and recorded below unchanged. M4 is now also complete: OD01 is resolved (the
@@ -908,6 +923,181 @@ and the 3D move guide), per `00` §12.
   describes. Documented as a scoping simplification consistent with the existing event-role model,
   not a silent narrowing of the authorization requirement (every role named in `00` §5 is still
   enforced; only the finer per-station assignment granularity is deferred).
+
+## M5 implementation decisions
+
+### M4 scramble-secrecy verification gap, closed before M5
+
+The M4 report's own leakage tests covered competitor HTML, competitor API access, and an
+unauthenticated request, but `08`'s API-security-tests paragraph and this project's own
+acceptance bar also require evidence for public endpoints, error responses, logs, caches,
+exports, and unauthorized staff views. Closed with a new `ScrambleSecurityGapTest`:
+
+- **Error responses**: a validation error (missing spoil reason) and 404s for a nonexistent
+  assignment never echo the just-revealed notation — confirmed, no fix needed (`ApiException`'s
+  messages and Bean Validation's default messages are both static strings; no endpoint accepts
+  notation as request input at all).
+- **Application logs**: captured every log line (a Logback `ListAppender` on the root logger, set
+  to `ALL`) across reveal/official-view/spoil and found a **real exposure**: `RevealView`'s and
+  `PrintEntry`'s default record-generated `toString()` includes plaintext `notation`, and Spring
+  MVC's DEBUG-level request logging (`AbstractMessageConverterMethodProcessor`'s "Writing [...]"
+  line) calls a response body's `toString()` verbatim. At the application's current default log
+  level (INFO) this never fires, but the moment any environment ever raised that specific log
+  level, plaintext notation would land in logs. **Fixed**: both records now override `toString()`
+  to redact `notation`, so this is closed structurally, not by relying on every environment to
+  keep DEBUG logging off forever.
+- **HTTP caches**: none of the four notation-carrying responses (reveal/official-view/print/
+  current-scramble) ever set a `Cache-Control` header before this pass — a browser back/forward
+  cache or an intermediate proxy could in principle retain one. **Fixed**: all four now set
+  `Cache-Control: no-store`.
+- **Exports**: did not exist until this milestone's CSV feature; covered there instead —
+  `HistoryExportFlowTest.csvContainsRawMsAndFormattedResultAndNeverScrambleNotation` asserts the
+  export of an event with a revealed scramble never contains the notation or the word
+  "notation."
+- **Unauthorized staff views**: added a negative test for staff on a *different event in a
+  different organization* (judge-assigned elsewhere) attempting reveal/official-view/print — all
+  404. Also added a *positive*, intentional-behavior test documenting that any member of the
+  *same* organization can reveal a scramble for an event they were never explicitly staffed on
+  (`TenantAccessService.requireOrganizer` grants Organizer rights org-wide, by design since M1) —
+  pinned down as intended, not an accidental over-grant left ambiguous.
+- **Public/unauthenticated endpoints**: didn't exist in M4 (the self-scramble `current-scramble`
+  guest-cookie endpoint was already tested). Now that M5 adds `/public/events/{slug}` and
+  `.../standings`, `ScrambleSecurityGapTest.publicUnauthenticatedEndpointsNeverExposeScrambleNotation`
+  proves neither ever contains notation.
+
+The TNoodle GPL-3.0 SaaS-vs-distribution question (OD01 resolution, above) was **not** touched by
+this pass: no license or generator change was made, and no legal-approval claim is made here.
+
+### Advancement preview/commit
+
+- **Reuses the pure scoring engine unchanged.** `AdvancementService` calls `ScoringEngine.score`,
+  `RankingService.rank`, and the existing (previously unwired) `AdvancementCalculator.topN`/
+  `.topPercent` directly — no ranking or tie math was reimplemented.
+- **Eligibility** (`09`: "not withdrawn and has at least one result status") is enforced in two
+  parts: withdrawn entrants are filtered out before scoring, and an entrant with zero resolved
+  attempts scores `RoundOutcome.NO_RESULT`, which `RankingService.rank` already excludes from the
+  ranked list — no separate "has a result" check was needed beyond what the engine already does.
+- **Deferred, not silently invented**: the optional organizer-selected tie-break *attempt* (`09`:
+  "If organizer selected a tie-break attempt, show the tied names and create a special one-attempt
+  attempt with an unused scramble...This option must be selected before registration opens") is
+  not implemented. Boundary ties always advance together instead — the *default* behavior `09`
+  itself names, and the one this milestone's task description's acceptance bullets ("tie
+  handling") can be satisfied by without inventing an unspecified UI/data-model for an optional,
+  pre-registration-locked configuration flag. If the product owner wants the tie-break-attempt
+  path, it needs its own round-config field and attempt-creation flow, not a small addition to
+  this pass.
+- **Where "next round slots" live.** `08`: commit "creates next-round slots transactionally."
+  There is no round-scoped entrant roster anywhere in the M1-M4 data model — `RoundService.prepare()`
+  has always allocated attempts for *every active event entrant*, with no restriction. Rather than
+  creating `Attempt` rows directly from `AdvancementService` (which would bypass `prepare()`'s own
+  state checks and ResultSource logic), commit writes a new join table, `round_qualified_entrants`
+  (round → entrant), and `RoundService.prepare()` now checks it: if any row exists for the round
+  being prepared, only those entrants are used; otherwise it falls back to every active entrant,
+  the exact M1-M4 behavior. This means a round nobody ever advanced into (e.g. an event's first
+  round) is completely unaffected, and the restriction only activates once a commit has actually
+  happened — recorded here since it's a real, if small, new coupling between two services that
+  previously had none.
+- **Idempotency and concurrency**, per `08`'s "repeated writes are idempotent" and "stale version
+  gives a conflict without overwriting": a commit records `Round.advancementCommittedAt/By/Count`.
+  A *repeated* call (same round, already committed) short-circuits before any check and replays
+  the same deterministic result — safe because a committed round is REVIEW/CLOSED and frozen, so
+  recomputing the preview always reproduces the same ranking. A *stale* `expectedVersion` on an
+  as-yet-uncommitted round is rejected before any write. For genuine *concurrent* commits, the
+  round's own JPA `@Version` is the lock: `markAdvancementCommitted()` is saved-and-flushed
+  **before** the roster-insert loop runs, so the loser of a race fails immediately at that flush
+  (its version no longer matches) and never reaches the roster writes at all — no duplicate-key
+  race on `round_qualified_entrants` is possible by construction, not just by probability. No
+  generic `Idempotency-Key` header mechanism was built (none exists anywhere in this codebase
+  across M1-M4 either, despite `08` naming one in the API conventions — a pre-existing, consistent
+  gap, not a new one introduced here); the existing `expectedVersion`-plus-state-check pattern
+  (same one `AttemptService`/`CorrectionService` already use) is reused instead. Tested in
+  `AdvancementFlowTest`, including two real concurrent HTTP requests via `ExecutorService`.
+- **Commit requires REVIEW or CLOSED and a DRAFT next round.** Not stated explicitly in `08`/`09`
+  as a hard gate, but follows directly from `07` S11 being a step in round *review*, and from
+  "creates next-round slots" implying the next round hasn't been prepared yet. If the next round
+  doesn't exist yet, commit returns `400 NO_NEXT_ROUND` rather than silently doing nothing.
+
+### Publishing and public display
+
+- **Not gated on `EventState`.** Across M1-M4, `Event.state` only ever actually reaches
+  `DRAFT`/`REGISTRATION_OPEN`/`REGISTRATION_LOCKED`/`REGISTRATION_REOPENED` in real code — nothing
+  anywhere sets it to `READY`/`LIVE`/`COMPLETED` (round-level state, not event-level state, is
+  what actually drives the competition). Gating publish on `EventState` would make it practically
+  unreachable. Publish/unpublish are therefore organizer-authorized at any event state; what the
+  public page actually shows is separately gated per-round (only READY/LIVE/REVIEW/CLOSED rounds
+  are ever listed).
+- **Resolved a real identifier conflict between `07` and `08`.** `08`'s Event DTO and endpoint
+  list name a stable `publicSlug`. `07` S13 says "Hide by revoking token," implying a *revocable*
+  identifier. A pure stable slug can't satisfy "hide by revoking" (unpublishing under the same
+  slug would still let anyone who saved the old link see it reappear on republish). Resolution:
+  `Event.publicSlug` is generated once on first publish and stays stable across publish/unpublish
+  cycles for convenience, **except** unpublish specifically rotates it to a fresh value — so
+  "hide" really does kill the previously shared link, and a subsequent publish needs a newly
+  shared link. Tested in `PublishAndPublicFlowTest.publishGeneratesASlugAndUnpublishRotatesIt...`.
+- **No `PublicSnapshot` cache table was built.** `04` names it as "optional publication cache
+  containing only approved fields." `PublicDisplayService` instead computes the public view live
+  from current data on every read, gated by `publishedAt`/round state — avoiding a second place
+  standings data can silently go stale relative to the authorized staff view, at the cost of
+  doing the ranking computation on every public request rather than once at publish time. If
+  public traffic ever makes that computation cost matter, the snapshot table is the documented
+  next step; it was not needed to satisfy this milestone's acceptance bar.
+- **Public DTOs are hand-written allowlists** (`PublicDtos.PublicEventView`/`PublicStandingsView`/
+  etc.), not views over the staff DTOs — structurally incapable of carrying scramble, guest
+  credentials, email, tokens, notes, or staff actions, the same defense-by-DTO-shape pattern M4
+  used for `RevealView`. Withdrawn entrants are excluded entirely from public standings (a
+  privacy judgment call, not stated explicitly in `07`/`08`, but consistent with "private entrant
+  data" never leaking per `08`'s API security test).
+- **Provisional rounds show progress, not hidden averages.** `07` S13: "If round incomplete,
+  label provisional and show completed attempt counts; don't present partial averages as final."
+  Read as "don't claim it's final," not "hide the number" — `PublicEntrantStanding` includes the
+  in-progress rank/result alongside `completedAttempts`/`totalAttempts` and a `provisional: true`
+  flag the UI must honor, rather than omitting the result entirely.
+- **`GET /public/events/{publicSlug}/standings` takes `roundId` as a query parameter**, not a
+  second path segment, since `08`'s literal path has no room for one and an event has multiple
+  rounds. A minor, documented route-shape choice, not a change to what data is exposed or how it's
+  authorized.
+- **Deferred, not silently invented**: public name masking (`07` S12, "Public name masking
+  option" — no further spec given for the UI/API shape of the toggle); the podium-reveal animation
+  and a refresh/reconnect indicator on the public page (both depend on the real-time channel,
+  which remains unbuilt — row 63); S12's dedicated live/unpublished/published/revisions tabs
+  (folded into the existing event page's sections instead, matching the S04 precedent).
+
+### Organization history and CSV export
+
+- **A new, separate `history` endpoint, not an extension of the existing event-list endpoint.**
+  `GET /organizations/{orgId}/events` (row 15) has been the dashboard's event list since M1; `07`
+  S14 additionally wants date/name/status search and per-event entrant/round counts. Rather than
+  widening row 15's existing `EventView` response (risking a regression to M1-M4 behavior this
+  task was explicitly told to preserve), a new `GET /organizations/{orgId}/events/history` route
+  with its own summary DTO (`EventHistorySummary`) was added instead.
+- **CSV-injection ("formula injection") mitigation — a real gap no product doc names.** A
+  competitor's free-text display name (`EventEntrant.displayName`) lands directly in an exported
+  CSV cell a staff member may open in Excel/Sheets/LibreOffice. None of `00`/`07`/`08`/`09`
+  mention this risk at all. Added a small hand-written `CsvWriter` (no CSV library exists anywhere
+  in this codebase; none was added) that RFC-4180-quotes cells containing commas/quotes/newlines
+  and prefixes a cell beginning with `= + - @` or a tab with a single quote, neutralizing the
+  formula-injection vector while leaving the visible text intact. Tested in
+  `HistoryExportFlowTest.csvSanitizesFormulaInjectionInDisplayNames`.
+- **CSV columns**: `Round, Rank, Entrant, Outcome, ResultMs, ResultFormatted, BestSingleMs,
+  BestSingleFormatted, AttemptsRawMs, AttemptsFormatted` — one row per (round, entrant), satisfying
+  `09`'s "CSV exports raw milliseconds and formatted result" for both the round-level result and
+  every individual attempt (semicolon-joined per attempt). "Raw" is read as "the exact integer-ms
+  value used for scoring" (the adjusted, post-penalty time), not the pre-penalty raw judge entry —
+  the adjusted value is what the round result and ranking are actually built from, and is the
+  value a reader reconciling the CSV against the standings screen would expect.
+- **UTF-8 with a BOM** (byte-order mark), for Excel compatibility — `08`/`07` only say "UTF-8";
+  the BOM is additive and doesn't change the encoding, just how reliably common spreadsheet
+  software detects it.
+- **Deferred, not silently invented**: "copy event settings" (duplicate-event-as-template) and
+  retention-policy deletion from `07` S14 — the M5 task's own acceptance bullets name only
+  "organization event history and the specified CSV export," not these two S14 extras.
+
+### GET /events/{eventId}/audit
+
+Exposes the `AuditEvent` rows every milestone since M1 has recorded via `AuditService` but never
+had a read endpoint for. Organizer-only, matching `08`'s "owner/organizer restricted." No dedicated
+authorization test was added for this one small addition specifically — see "remaining gaps" in
+the M5 completion report.
 
 ## Deviations from documents
 
