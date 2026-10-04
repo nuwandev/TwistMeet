@@ -65,6 +65,11 @@ public class Event {
   @Column(name = "join_code_hash", unique = true)
   private String joinCodeHash;
 
+  // 00 §4: "In-app rules text is versioned and snapshotted into the event when registration
+  // opens." A JSON string built from RulesetSnapshot; null until registration first opens.
+  @Column(name = "ruleset_snapshot")
+  private String rulesetSnapshot;
+
   @Column(name = "created_at", nullable = false)
   private Instant createdAt = Instant.now();
 
@@ -141,8 +146,16 @@ public class Event {
     return timerMode;
   }
 
+  public void setTimerMode(TimerMode timerMode) {
+    this.timerMode = timerMode;
+  }
+
   public ScramblePolicy getScramblePolicy() {
     return scramblePolicy;
+  }
+
+  public void setScramblePolicy(ScramblePolicy scramblePolicy) {
+    this.scramblePolicy = scramblePolicy;
   }
 
   public String getJoinCode() {
@@ -151,6 +164,14 @@ public class Event {
 
   public String getJoinCodeHash() {
     return joinCodeHash;
+  }
+
+  public String getRulesetSnapshot() {
+    return rulesetSnapshot;
+  }
+
+  public void setRulesetSnapshot(String rulesetSnapshot) {
+    this.rulesetSnapshot = rulesetSnapshot;
   }
 
   public void rotateJoinCode(String joinCode, String joinCodeHash) {

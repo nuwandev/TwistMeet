@@ -16,7 +16,9 @@ public final class EventDtos {
       @NotNull Instant startsAt,
       @NotBlank String timezone,
       @Size(max = 200) String venueLabel,
-      EventVisibility visibility) {}
+      EventVisibility visibility,
+      TimerMode timerMode,
+      ScramblePolicy scramblePolicy) {}
 
   public record UpdateEventRequest(
       @NotBlank @Size(min = 3, max = 80) String name,
@@ -38,6 +40,7 @@ public final class EventDtos {
       TimerMode timerMode,
       ScramblePolicy scramblePolicy,
       String joinCode,
+      String rulesetSnapshot,
       Instant createdAt,
       long version) {
     public static EventView of(Event event, boolean includeJoinCode) {
@@ -55,6 +58,7 @@ public final class EventDtos {
           event.getTimerMode(),
           event.getScramblePolicy(),
           includeJoinCode ? event.getJoinCode() : null,
+          event.getRulesetSnapshot(),
           event.getCreatedAt(),
           event.getVersion());
     }

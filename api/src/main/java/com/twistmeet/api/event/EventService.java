@@ -6,12 +6,15 @@ import com.twistmeet.api.common.SecretTokens;
 import com.twistmeet.api.event.EventDtos.CreateEventRequest;
 import com.twistmeet.api.event.EventDtos.UpdateEventRequest;
 import com.twistmeet.api.org.TenantAccessService;
+import com.twistmeet.api.scoring.RulesetVersion;
 import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Event lifecycle per 00 §6: {@code DRAFT -> REGISTRATION_OPEN -> REGISTRATION_LOCKED -> READY ->
@@ -25,14 +28,17 @@ public class EventService {
   private final EventRepository eventRepository;
   private final TenantAccessService tenantAccessService;
   private final AuditService auditService;
+  private final ObjectMapper objectMapper;
 
   public EventService(
       EventRepository eventRepository,
       TenantAccessService tenantAccessService,
-      AuditService auditService) {
+      AuditService auditService,
+      ObjectMapper objectMapper) {
     this.eventRepository = eventRepository;
     this.tenantAccessService = tenantAccessService;
     this.auditService = auditService;
+    this.objectMapper = objectMapper;
   }
 
   @Transactional
@@ -42,6 +48,12 @@ public class EventService {
 
     EventVisibility visibility =
         request.visibility() == null ? EventVisibility.PRIVATE : request.visibility();
+    if (request.scramblePolicy() == ScramblePolicy.SELF_SCRAMBLE
+        && request.timerMode() != TimerMode.PHONE_CASUAL) {
+      // 00 §7: "Competitor self-scramble (only enabled in casual phone mode)."
+      throw ApiException.badRequest(
+          "SCRAMBLE_POLICY_INVALID", "Self-scramble is only allowed in casual phone-timer mode");
+    }
     String code = SecretTokens.newJoinCode();
     Event event =
         new Event(
@@ -54,6 +66,12 @@ public class EventService {
             visibility,
             code,
             SecretTokens.sha256Hex(code));
+    if (request.timerMode() != null) {
+      event.setTimerMode(request.timerMode());
+    }
+    if (request.scramblePolicy() != null) {
+      event.setScramblePolicy(request.scramblePolicy());
+    }
     event = eventRepository.save(event);
     auditService.recordStaffAction(
         organizationId,
@@ -93,12 +111,25 @@ public class EventService {
 
   @Transactional
   public Event openRegistration(UUID eventId, UUID actorUserId) {
-    return transition(
-        eventId,
-        actorUserId,
-        EventState.DRAFT,
-        EventState.REGISTRATION_OPEN,
-        "REGISTRATION_OPENED");
+    Event event =
+        transition(
+            eventId,
+            actorUserId,
+            EventState.DRAFT,
+            EventState.REGISTRATION_OPEN,
+            "REGISTRATION_OPENED");
+    if (event.getRulesetSnapshot() == null) {
+      RulesetSnapshot snapshot =
+          new RulesetSnapshot(
+              RulesetVersion.V1,
+              event.getPuzzleType(),
+              event.getTimerMode(),
+              event.getScramblePolicy(),
+              Instant.now());
+      event.setRulesetSnapshot(objectMapper.writeValueAsString(snapshot));
+      event = eventRepository.save(event);
+    }
+    return event;
   }
 
   @Transactional

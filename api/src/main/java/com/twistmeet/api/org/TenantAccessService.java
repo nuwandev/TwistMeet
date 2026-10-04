@@ -1,6 +1,9 @@
 package com.twistmeet.api.org;
 
 import com.twistmeet.api.common.ApiException;
+import com.twistmeet.api.event.Event;
+import com.twistmeet.api.event.EventRole;
+import com.twistmeet.api.event.EventStaffAssignmentRepository;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
@@ -15,9 +18,13 @@ import org.springframework.stereotype.Service;
 public class TenantAccessService {
 
   private final OrganizationMembershipRepository membershipRepository;
+  private final EventStaffAssignmentRepository eventStaffAssignmentRepository;
 
-  public TenantAccessService(OrganizationMembershipRepository membershipRepository) {
+  public TenantAccessService(
+      OrganizationMembershipRepository membershipRepository,
+      EventStaffAssignmentRepository eventStaffAssignmentRepository) {
     this.membershipRepository = membershipRepository;
+    this.eventStaffAssignmentRepository = eventStaffAssignmentRepository;
   }
 
   /**
@@ -34,5 +41,46 @@ public class TenantAccessService {
 
   public void requireAnyStaffRole(UUID organizationId, UUID userId) {
     requireMembership(organizationId, userId);
+  }
+
+  /**
+   * Organizer-level authorization for an event-scoped operation (round configuration, roster
+   * removal after start, etc. — 00 §5 lists these as Organizer-only, explicitly excluded from
+   * Judge). A caller who holds a narrower {@link EventRole#JUDGE} assignment for this exact event
+   * but no organization membership is a recognized actor for the event, just not authorized for
+   * this action, so gets 403 rather than the anti-enumeration 404 a total stranger gets.
+   */
+  public void requireOrganizer(Event event, UUID userId) {
+    boolean isMember =
+        membershipRepository
+            .findByOrganizationIdAndUserId(event.getOrganizationId(), userId)
+            .isPresent();
+    if (isMember) {
+      return;
+    }
+    if (eventStaffAssignmentRepository.existsByEventIdAndUserId(event.getId(), userId)) {
+      throw ApiException.forbidden("Organizer role required");
+    }
+    throw ApiException.notFound("Event not found");
+  }
+
+  /**
+   * Judge-or-organizer authorization for judge-level actions (judge result entry, etc. — 00 §5
+   * assigns these to Judge and Organizer alike). Any organization member already qualifies (M1's
+   * simplified two-role org model has no lesser "organization staff" tier yet — see DECISIONS.md);
+   * otherwise the caller must hold an explicit {@link EventRole#JUDGE} assignment for this exact
+   * event.
+   */
+  public void requireJudgeOrOrganizer(Event event, UUID userId) {
+    boolean isMember =
+        membershipRepository
+            .findByOrganizationIdAndUserId(event.getOrganizationId(), userId)
+            .isPresent();
+    boolean isJudge =
+        eventStaffAssignmentRepository.existsByEventIdAndUserIdAndRole(
+            event.getId(), userId, EventRole.JUDGE);
+    if (!isMember && !isJudge) {
+      throw ApiException.notFound("Event not found");
+    }
   }
 }
