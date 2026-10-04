@@ -42,6 +42,7 @@ public final class RoundDtos {
       boolean paused,
       RulesetVersion rulesetVersion,
       Instant createdAt,
+      Instant startedAt,
       long version) {
     public static RoundView of(Round round) {
       return new RoundView(
@@ -58,6 +59,7 @@ public final class RoundDtos {
           round.isPaused(),
           round.getRulesetVersion(),
           round.getCreatedAt(),
+          round.getStartedAt(),
           round.getVersion());
     }
   }

@@ -1,5 +1,6 @@
 package com.twistmeet.api.competition;
 
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
@@ -12,9 +13,10 @@ public final class CorrectionDtos {
   public record CreateCorrectionRequest(
       @NotNull CorrectionCategory category, @Size(max = 500) String note) {}
 
+  /** 07 S10 "Require decision reason" — enforced server-side, not only by hiding the UI control. */
   public record DecisionRequest(
       @NotNull CorrectionDecision action,
-      @Size(max = 500) String reason,
+      @NotBlank @Size(max = 500) String reason,
       @NotNull long expectedVersion) {}
 
   public record CorrectionView(

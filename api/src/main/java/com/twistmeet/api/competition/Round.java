@@ -62,6 +62,11 @@ public class Round {
   @Column(name = "created_at", nullable = false)
   private Instant createdAt = Instant.now();
 
+  // 07 S08 Tournament Control: "time since round start." Set once, when the round transitions to
+  // LIVE; null before that. Distinct from createdAt, which is when the round was configured.
+  @Column(name = "started_at")
+  private Instant startedAt;
+
   @Version private long version;
 
   protected Round() {}
@@ -121,6 +126,13 @@ public class Round {
 
   public void setState(RoundState state) {
     this.state = state;
+    if (state == RoundState.LIVE && startedAt == null) {
+      startedAt = Instant.now();
+    }
+  }
+
+  public Instant getStartedAt() {
+    return startedAt;
   }
 
   public boolean isPaused() {

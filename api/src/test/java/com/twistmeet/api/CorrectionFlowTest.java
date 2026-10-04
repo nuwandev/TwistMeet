@@ -143,4 +143,26 @@ class CorrectionFlowTest extends AbstractIntegrationTest {
     assertThat(judgeList.getStatusCode().value()).isEqualTo(200);
     assertThat(json(judgeList)).hasSize(1);
   }
+
+  @Test
+  void decisionRequiresANonBlankReason() throws Exception {
+    setUpJudgedAttempt("5");
+    ResponseEntity<String> request =
+        guest.post(
+            "/api/v1/attempts/" + attemptId + "/correction-requests",
+            Map.of("category", "OTHER", "note", "n/a"));
+    String correctionId = json(request).get("id").asText();
+
+    ResponseEntity<String> blankReason =
+        client.post(
+            "/api/v1/corrections/" + correctionId + "/decision",
+            Map.of("action", "REJECT", "reason", "", "expectedVersion", 0));
+    assertThat(blankReason.getStatusCode().value()).isEqualTo(400);
+
+    ResponseEntity<String> missingReason =
+        client.post(
+            "/api/v1/corrections/" + correctionId + "/decision",
+            Map.of("action", "REJECT", "expectedVersion", 0));
+    assertThat(missingReason.getStatusCode().value()).isEqualTo(400);
+  }
 }
