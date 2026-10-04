@@ -2,14 +2,15 @@ package com.twistmeet.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twistmeet.api.support.AbstractIntegrationTest;
 import com.twistmeet.api.support.TestApiClient;
 import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Proves organization A cannot reach organization B's data through any of the org-scoped endpoints
@@ -18,7 +19,7 @@ import org.springframework.http.ResponseEntity;
  */
 class CrossTenantAccessTest extends AbstractIntegrationTest {
 
-  private final ObjectMapper objectMapper = new ObjectMapper();
+  private final ObjectMapper objectMapper = JsonMapper.builder().build();
 
   @Test
   void memberOfOrgBCannotReadOrModifyOrgAEvent() throws Exception {

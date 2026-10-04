@@ -1,16 +1,17 @@
 package com.twistmeet.api.support;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A tiny cookie-jar-aware HTTP client for integration tests. Real browsers and the Next.js web
@@ -22,7 +23,7 @@ import org.springframework.http.ResponseEntity;
 public class TestApiClient {
 
   private final TestRestTemplate restTemplate;
-  private final ObjectMapper objectMapper = new ObjectMapper();
+  private final ObjectMapper objectMapper = JsonMapper.builder().build();
   private final Map<String, String> cookieJar = new LinkedHashMap<>();
 
   public TestApiClient(TestRestTemplate restTemplate) {

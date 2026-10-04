@@ -1,6 +1,5 @@
 package com.twistmeet.api.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.twistmeet.api.common.ApiErrorResponse;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -19,6 +18,7 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Staff authentication uses a server-side session behind a secure, HttpOnly, SameSite cookie (08
