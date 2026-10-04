@@ -41,6 +41,7 @@ public class RoundService {
   private final EventEntrantRepository entrantRepository;
   private final AttemptRepository attemptRepository;
   private final CorrectionRepository correctionRepository;
+  private final RoundQualifiedEntrantRepository qualifiedEntrantRepository;
   private final TenantAccessService tenantAccessService;
   private final AuditService auditService;
 
@@ -50,6 +51,7 @@ public class RoundService {
       EventEntrantRepository entrantRepository,
       AttemptRepository attemptRepository,
       CorrectionRepository correctionRepository,
+      RoundQualifiedEntrantRepository qualifiedEntrantRepository,
       TenantAccessService tenantAccessService,
       AuditService auditService) {
     this.roundRepository = roundRepository;
@@ -57,6 +59,7 @@ public class RoundService {
     this.entrantRepository = entrantRepository;
     this.attemptRepository = attemptRepository;
     this.correctionRepository = correctionRepository;
+    this.qualifiedEntrantRepository = qualifiedEntrantRepository;
     this.tenantAccessService = tenantAccessService;
     this.auditService = auditService;
   }
@@ -134,10 +137,26 @@ public class RoundService {
     tenantAccessService.requireOrganizer(event, actorUserId);
     requireRoundState(round, RoundState.DRAFT, RoundState.PREPARING);
 
-    List<EventEntrant> entrants =
-        entrantRepository.findByEventId(eventId).stream()
-            .filter(e -> e.getStatus() == EntrantStatus.ACTIVE)
-            .toList();
+    // M5: if an advancement commit (AdvancementService) ever admitted a specific roster into
+    // this round, prepare only those entrants. Otherwise (this round's own first prepare, or any
+    // round nobody advanced into) fall back to every active event entrant — exact M1-M4 behavior.
+    List<EventEntrant> entrants;
+    if (qualifiedEntrantRepository.existsByIdRoundId(roundId)) {
+      java.util.Set<UUID> qualifiedIds =
+          qualifiedEntrantRepository.findByIdRoundId(roundId).stream()
+              .map(RoundQualifiedEntrant::getEntrantId)
+              .collect(java.util.stream.Collectors.toSet());
+      entrants =
+          entrantRepository.findByEventId(eventId).stream()
+              .filter(
+                  e -> e.getStatus() == EntrantStatus.ACTIVE && qualifiedIds.contains(e.getId()))
+              .toList();
+    } else {
+      entrants =
+          entrantRepository.findByEventId(eventId).stream()
+              .filter(e -> e.getStatus() == EntrantStatus.ACTIVE)
+              .toList();
+    }
     validateAdvancement(round.getAdvancementRule(), round.getAdvancementValue(), entrants.size());
 
     ResultSource resultSource =

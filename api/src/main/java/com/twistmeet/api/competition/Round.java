@@ -67,6 +67,18 @@ public class Round {
   @Column(name = "started_at")
   private Instant startedAt;
 
+  // M5 advancement commit (09/08). Null until AdvancementService.commit() succeeds exactly once;
+  // present thereafter so a repeated commit call is detected and answered idempotently instead
+  // of re-mutating the next round's qualified roster.
+  @Column(name = "advancement_committed_at")
+  private Instant advancementCommittedAt;
+
+  @Column(name = "advancement_committed_by")
+  private UUID advancementCommittedBy;
+
+  @Column(name = "advancement_committed_count")
+  private Integer advancementCommittedCount;
+
   @Version private long version;
 
   protected Round() {}
@@ -154,6 +166,24 @@ public class Round {
 
   public long getVersion() {
     return version;
+  }
+
+  public Instant getAdvancementCommittedAt() {
+    return advancementCommittedAt;
+  }
+
+  public UUID getAdvancementCommittedBy() {
+    return advancementCommittedBy;
+  }
+
+  public Integer getAdvancementCommittedCount() {
+    return advancementCommittedCount;
+  }
+
+  public void markAdvancementCommitted(UUID actorUserId, int count) {
+    this.advancementCommittedAt = Instant.now();
+    this.advancementCommittedBy = actorUserId;
+    this.advancementCommittedCount = count;
   }
 
   public void applyDraftEdits(

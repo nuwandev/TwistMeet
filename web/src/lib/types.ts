@@ -45,6 +45,8 @@ export type EventView = {
   scramblePolicy: "STAFF_PREPARED" | "SELF_SCRAMBLE";
   joinCode: string | null;
   rulesetSnapshot: string | null;
+  publishedAt: string | null;
+  publicSlug: string | null;
   createdAt: string;
   version: number;
 };
@@ -203,4 +205,64 @@ export type StandingsView = {
   provisional: boolean;
   rulesetVersion: string;
   standings: EntrantStanding[];
+};
+
+export type AdvancedEntrant = { entrantId: string; displayName: string; rank: number };
+
+export type AdvancementPreviewView = {
+  roundId: string;
+  nextRoundId: string | null;
+  advancementRule: AdvancementRule;
+  advancementValue: number | null;
+  eligibleCount: number;
+  targetCount: number;
+  advancing: AdvancedEntrant[];
+  tieNote: string;
+  alreadyCommitted: boolean;
+};
+
+export type AdvancementCommitView = {
+  roundId: string;
+  nextRoundId: string | null;
+  eligibleCount: number;
+  advancedCount: number;
+  advancing: AdvancedEntrant[];
+  tieNote: string;
+  idempotentReplay: boolean;
+};
+
+export type EventHistorySummary = {
+  eventId: string;
+  name: string;
+  state: EventState;
+  startsAt: string;
+  entrantCount: number;
+  roundCount: number;
+};
+
+export type PublicRoundSummary = { roundId: string; order: number; name: string; state: string };
+
+export type PublicEventView = {
+  eventId: string;
+  name: string;
+  venueLabel: string | null;
+  startsAt: string;
+  timezone: string;
+  rounds: PublicRoundSummary[];
+};
+
+export type PublicEntrantStanding = {
+  displayName: string;
+  rank: number;
+  outcome: string;
+  displayMs: number | null;
+  bestValidSingleMs: number | null;
+  completedAttempts: number;
+  totalAttempts: number;
+};
+
+export type PublicStandingsView = {
+  roundId: string;
+  provisional: boolean;
+  standings: PublicEntrantStanding[];
 };
