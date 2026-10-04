@@ -4,15 +4,24 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
+## Status: M4 complete — Scramble controls and the 3D move guide
+
+M0–M3 are complete and recorded below unchanged. M4 is now also complete: OD01 is resolved (the
+official WCA scramble program via `org.worldcubeassociation.tnoodle`, with full primary-source
+evidence — see "OD01 resolution" below), versioned scramble generation, encrypted-at-rest vault
+storage, per-attempt assignment with controlled extras, role-scoped reveal (a new `SCRAMBLER`
+event role joins `JUDGE`/`ORGANIZER`), applied/checked audit with an independent second-checker
+toggle, the scramble preparation station screen, print, and the 3D move guide (`cubing.js`'s
+`TwistyPlayer`). See "M4 implementation decisions" below for the full list and for what remains
+out of scope (advancement commit, publishing, public display, export — still later milestones).
+
 ## Status: M3 complete — Organizer and competitor experience
 
-M0, M1, and M2 are complete and recorded below unchanged. M3 is now also complete: the event
-creation wizard, Tournament Control, judge-entry validation/undo, the competitor waiting room's
-explicit lifecycle states, connection-loss/offline handling, and the shared
-loading/empty/error/retry/offline/confirm component set used across all of them. OD16
+M3 is complete: the event creation wizard, Tournament Control, judge-entry validation/undo, the
+competitor waiting room's explicit lifecycle states, connection-loss/offline handling, and the
+shared loading/empty/error/retry/offline/confirm component set used across all of them. OD16
 (correction-decision authority) is resolved — organizer-only — by explicit instruction; see "M3
-implementation decisions" below. Scramble vault/generation, advancement commit, public
-publishing/display, and export remain out of scope (later milestones).
+implementation decisions" below.
 
 M2 is complete: ruleset versioning/snapshots, round setup/lifecycle, the attempt state machine
 (judge and self-timed modes), roster remove-vs-withdraw, judge result entry with append-only
@@ -72,9 +81,11 @@ that milestone, and a safe default **if the documents actually support one** —
 here is a candidate for the owner to confirm, not a decision already made. Items with no safe
 default must not be guessed.
 
+**OD01 resolved at M4 (see "OD01 resolution: scramble generator and 3D-guide library" below) —
+removed from this table.**
+
 | ID | Decision | Category | Owner | Needed by | Blocks that milestone? | Safe default (if any) | Source |
 |---|---|---|---|---|---|---|---|
-| OD01 | Scramble generator/library selection and independent review (legal move parsing, license, maintenance, correctness, version) | Technical | Engineering lead | M4 | **Yes** — M4 cannot ship the scramble module without it | None — `04`/`05` require an explicit reviewed choice; cannot be invented | `04` "Scramble generation component review"; `05` Integrity gate |
 | OD02 | Final product/brand name and domain | Brand | Product owner | Before any public-facing domain/trademark/app-listing use (not before Phase 3) | No — does not block M1–M6 internal/staging work | Keep "TwistMeet" as internal-only working name; keep all user-visible branding in one configurable value (see note above) | `00` title; package `README` |
 | OD03 | Target hosting/cloud provider, domain registrar, environment topology | Technical/Operations | Product owner + engineering | M6 (staging deployment) | **Yes, for M6** — not for M1–M5 | None named in the docs beyond "environment separation (local, staging, production)" | `00` §10 |
 | OD04 | Outgoing transactional email provider (verification, password reset, notifications) | Technical/Operations | Engineering | M1 (auth flows use email) | Partially — local/dev auth flows can proceed with a dev mail-catcher; a production-suitable choice is needed before M1's email-verification/reset behavior is pilot- or staging-ready | Use a local dev mail catcher (e.g. log-to-console or a dev SMTP sink) until a provider is chosen; no production default named in the docs | `08` auth endpoints; `12` "outgoing email" |
@@ -93,6 +104,12 @@ default must not be guessed.
 None of the "safe default" values above are treated as decided — they are the owner's starting
 point to confirm or override. Items marked "None" have no documented default and must not be
 guessed; they stay open until the named owner resolves them.
+
+**OD14 confirmed still unneeded at M4:** the scramble preparation station's "print current batch"
+(`07` S07) returns a plain JSON list of `{attemptNumber, notation}` that the web app renders as an
+HTML print view (browser `window.print()`) — no PDF/image generation, no persisted printable
+asset, no object storage. The "generate on demand" default (`00` §10) continues to hold exactly as
+it did before M4.
 
 **OD05 resolved at M1 (explicit instruction):** migrations use **Flyway** (`org.flywaydb:flyway-core`
 + `flyway-database-postgresql`), not Liquibase. The stack decision above is left as written
@@ -661,7 +678,238 @@ competitor experience), per `00` §12.
   Verified in `m3_e2e_organizer.mjs`: no undo button after the first save, one appears after a
   correction, and clicking it restores the earlier value and is visible in the UI immediately.
 
+## OD01 resolution: scramble generator and 3D-guide library
 
+Resolved at M4, per explicit instruction to review primary sources before choosing. Both pieces
+of evidence below were gathered by directly fetching the library's own repository, license file,
+npm registry metadata, and Maven Central artifact metadata — not from memory or secondary
+summaries — on 4 October 2026.
+
+### Generator: `org.worldcubeassociation.tnoodle:lib-scrambles`
+
+**Choice: the official WCA scramble program itself (TNoodle/`tnoodle-lib`), not a third-party or
+homegrown generator.** `00` §7 requires "an established generator with reviewed license,
+maintenance, puzzle-state correctness and version"; `02` requires "a maintained, compatible,
+reviewed generator... Do not roll a homegrown generator for production without specialist
+review. If WCA-level equivalence is required, use only a method accepted for that purpose." No
+piece of software meets that bar more directly than the generator the WCA itself runs at every
+sanctioned competition — its scrambling correctness has been continuously, publicly exercised by
+the entire competitive speedsolving community for years, which is a stronger and more
+independently-verified correctness signal than any private review this task could perform.
+
+Evidence gathered directly:
+- **Repository**: `github.com/thewca/tnoodle-lib` ("scrambling code portion of TNoodle"), owned by
+  the `thewca` GitHub organization (the World Cube Association's own account) — not a
+  third-party fork or community reimplementation.
+- **License**: GPL-3.0, confirmed by fetching the repository's own `LICENSE` file directly
+  (`raw.githubusercontent.com/thewca/tnoodle-lib/master/LICENSE`): "GNU GENERAL PUBLIC LICENSE,
+  Version 3." Also confirmed in the published Maven POM's `<licenses>` block.
+- **Maintenance**: the 10 most recent commits to `tnoodle-lib`'s `master` branch (checked via the
+  GitHub commits API) are all dated **4 October 2026 — the same day this decision was made** —
+  including "Release v0.20.0" by a WCA Software Team member (`gregorbg`), live dependency-bot
+  updates, and build-tooling fixes. This is about as current as "actively maintained" can be
+  demonstrated.
+- **Published artifact**: `org.worldcubeassociation.tnoodle:lib-scrambles:0.20.0` on Maven
+  Central (fetched `repo1.maven.org/maven2/.../lib-scrambles/maven-metadata.xml` directly — not a
+  secondary index), `lastUpdated` timestamp `2026-10-04`, matching the GitHub release commit
+  exactly. It depends at runtime on `scrambler-threephase` and `scrambler-min2phase` (both
+  published by the same group, same version) — these are the actual 3×3×3 random-state scrambling
+  algorithm modules; `lib-scrambles` is the umbrella/registry layer.
+- **Puzzle support and correctness approach**: `PuzzleRegistry.THREE` (confirmed by fetching
+  `PuzzleRegistry.java`'s source directly) maps the 3×3×3 event to `ThreeByThreeCubePuzzle`, which
+  is backed by the `threephase`/`min2phase` random-state algorithm (Kociemba's two-phase
+  algorithm, the same approach documented on the WCA's own
+  `worldcubeassociation.org/regulations/scrambles/` page as how official scrambles are produced:
+  a uniformly random valid cube state is generated, solved, and the solution is reversed into the
+  scramble — "random-state scrambling," required by WCA Regulation 4b3 for 3×3×3). This is not
+  "a generic random-move generator" (which the task explicitly says not to use without
+  justification) — it is the specific, reviewed, state-correctness-driven approach the
+  authoritative contract's "puzzle-state correctness" requirement is asking for.
+- **Public API** (confirmed from `Puzzle.java`'s source directly): `@Export public final String
+  generateScramble()` returns one scramble string; this is the only method this codebase calls
+  (wrapped in `ScrambleGenerator`, the sole class in this codebase that imports anything from
+  `org.worldcubeassociation.tnoodle`, so the GPL dependency's surface is contained to one file).
+
+**Known, genuine license consideration — GPL-3.0, flagged for product-owner awareness, not
+silently accepted.** GPL-3.0 is a strong copyleft license: distributing a combined work containing
+GPL-3.0 code generally requires the combined work to also be GPL-3.0-licensed. This app is
+deployed as a network service (SaaS), not as software distributed to end users or resold/licensed
+as an installable product — under GPLv3 (unlike AGPLv3), running a service over a network is not
+itself an act of "distribution" that triggers the copyleft obligation, so using `tnoodle-lib`
+as a backend dependency for a hosted TwistMeet service does not require TwistMeet's own source to
+be released. **This stops being true the moment any of the following happens, and must be
+re-reviewed first**: (a) distributing the TwistMeet codebase or a binary/jar of it to a third
+party (open-sourcing under a different license, selling an installable/on-prem version, or
+providing the source to a customer); (b) statically bundling this dependency into something
+distributed outside the running service. No such distribution is planned or in scope for M4; this
+is recorded so a future decision-maker doesn't miss it. No safe alternative-license 3×3×3
+random-state generator with comparable maintenance/correctness evidence was found during this
+review (see "options considered" below) — if GPL-3.0 turns out to be unacceptable for a future
+distribution model, that would need a renewed OD01-style review, not a quiet swap.
+
+**Options considered and rejected:**
+- **`cubing/scramble`** (the scramble-generation half of `cubing.js`, see the 3D-guide section
+  below) — also produces WCA Regulation 4b3-compliant random-state 3×3×3 scrambles, and is
+  dual-licensed MPL-2.0/GPL-3.0-or-later (the more permissive option could be chosen). Rejected
+  as the *generator* specifically because it is a browser/Node JavaScript library, and this
+  project's API is a Spring Boot (JVM) service, not a Node service — using it would mean either
+  running a Node subprocess from the Java backend or moving scramble generation into the Next.js
+  web tier (a cross-service trust/architecture change out of proportion to this milestone, and a
+  deviation from "server-side generation" meaning the API, not the web frontend, which already
+  owns every other piece of server-authoritative competition state). `cubing.js` is still used —
+  for the 3D guide only, where it runs client-side by design (see below).
+- **A from-scratch random-state generator** (writing a cube-state model + a two-phase solver) —
+  explicitly the "do not roll a homegrown generator for production without specialist review"
+  case `02` warns against. Rejected outright; not a serious candidate.
+- **A generic random-move scrambler** (just emitting N random face turns with no state modeling)
+  — explicitly the case this task's own instruction says not to pick without justification, and
+  what `02` calls "not an arbitrary list of random face turns." Rejected: it does not meet "legal
+  move parsing" or "puzzle-state correctness," and would not be WCA Regulation 4b3-equivalent even
+  informally.
+
+### 3D move guide: `cubing` (npm), `TwistyPlayer` / `<twisty-player>`
+
+**Choice: `cubing.js`'s `TwistyPlayer` web component**, used client-side only, fed the scramble
+notation string the API already decrypts and authorizes — it never generates or knows a scramble
+on its own in this codebase.
+
+Evidence gathered directly:
+- **Repository**: `github.com/cubing/cubing.js` ("A library for displaying and working with
+  twisty puzzles. Also currently home to the code for Twizzle"), maintained by `lgarron` (Lucas
+  Garron), a long-standing member of the speedcubing/WCA software community.
+- **License**: dual MPL-2.0 / GPL-3.0-or-later, confirmed directly from the npm registry's
+  published package metadata for the latest version (`license: "MPL-2.0 OR GPL-3.0-or-later"`).
+  This codebase uses it under the **MPL-2.0** option — a permissive, file-level copyleft license
+  with no restriction on using it as a dependency in a proprietary application; MPL-2.0's
+  copyleft only reaches modifications to MPL-licensed files themselves, which this project makes
+  none of (it only imports and calls the published package).
+- **Maintenance**: npm registry metadata shows the latest version, `0.63.8`, published
+  **2026-09-28** — six days before this decision — fetched directly from
+  `registry.npmjs.org/cubing` (not a cached mirror).
+- **API shape** (confirmed by downloading the actual npm tarball and reading its shipped
+  TypeScript declarations, not documentation prose): `TwistyPlayer` accepts `alg` (the scramble
+  string), `puzzle: "3x3x3"`, and a `tempoScale` number controlling animation speed; it exposes
+  `jumpToStart()`/`jumpToEnd()`/`play()`/`pause()`/`togglePlay()` and ships its own built-in
+  control panel (move-by-move stepping, satisfying `07` S07's "move-by-move controls" without
+  this codebase building a custom stepper).
+- **No claim of physical verification**: `TwistyPlayer` renders a 3D model only; nothing in its
+  API performs or claims camera-based or sensor-based cube-state verification, consistent with
+  `00` §7's "the 3D cube is a guide to moves, not sensor-based verification" and exclusion E11
+  ("no machine claim that a 3D guide confirms a real cube") — this codebase's own UI copy
+  (`TwistyGuide` component) states this explicitly next to the rendered cube.
+- **Reduced motion**: `TwistyPlayer` has **no documented native `prefers-reduced-motion` support**
+  (checked directly — no such property appears in its shipped type declarations, and no primary
+  source documenting one was found). This codebase handles it itself: `TwistyGuide` detects
+  `prefers-reduced-motion: reduce` and sets `tempoScale` to a high value, shrinking animated
+  transitions to near-instantaneous — the same "shrink animation duration toward zero" approach
+  already used elsewhere in this app's reduced-motion handling (`globals.css`'s global
+  `prefers-reduced-motion` rule, from M3), rather than a verified built-in "instant jump" mode,
+  since no such mode is documented to exist. Noted here as a best-effort implementation, not a
+  claim that cubing.js itself is reduced-motion-aware.
+
+**Options considered and rejected:**
+- **A hand-built Three.js cube renderer** — would duplicate `cubing.js`'s purpose-built,
+  community-maintained twisty-puzzle renderer for no benefit, and reintroduce exactly the kind of
+  "homegrown, unreviewed" risk `02` warns against for the generator (the same caution reasonably
+  extends to a from-scratch 3D cube-state renderer, which is easy to get subtly wrong — e.g.
+  sticker orientation after a move).
+- **`cubejs` (the `ldez`/community npm package)** — an older, less actively maintained
+  cube-manipulation library without a comparably current maintenance signal or a built-in,
+  purpose-made player component; `cubing.js` was judged the stronger choice on both maintenance
+  recency and because it is the same ecosystem that produces `js.cubing.net`/`alpha.twizzle.net`,
+  tools the WCA community itself uses.
+
+## M4 implementation decisions
+
+Additions, conflict resolutions, and simplifications made while building M4 (scramble controls
+and the 3D move guide), per `00` §12.
+
+- **New event-scoped role: `EventRole.SCRAMBLER`.** `00` §5 names Scrambler as a role distinct
+  from Judge/Organizer ("assigned scramble and 3D guide; mark physical preparation checked; no
+  results or roster access unless also assigned another role"). Added alongside the existing
+  `JUDGE` value on the same `EventStaffAssignment` mechanism M2 built — no schema change needed
+  beyond the new enum value, since the role column is a plain string, not a database-native enum
+  type. `TenantAccessService.requireScrambleStaff()` accepts Organizer, Judge, *or* Scrambler for
+  the preparation-station actions (reveal, official-view, mark-applied, mark-checked, print,
+  list); `requireOrganizerOrJudge()` (spoil) deliberately excludes a plain Scrambler, since
+  spoiling is a correction-adjacent decision, not routine preparation work the Scrambler role's
+  own description covers.
+- **Spoiling always burns the original secret, whether or not it was ever revealed.** `00` §7:
+  "Do not reuse a used or revealed scramble for a replacement." A spoil could in principle happen
+  before anyone ever revealed the scramble (e.g. an organizer realizes a round's puzzle type was
+  misconfigured before any scrambler looked at it) — this implementation marks the secret
+  consumed unconditionally on spoil anyway, rather than only when `revealedAt` is set, since
+  there's no operational benefit to keeping an unrevealed-but-spoiled secret assignable, and doing
+  it unconditionally is simpler and strictly safer (never risks reusing a secret that actually was
+  shown to someone but whose `revealedAt` write raced with the spoil).
+- **A voided/spoiled scramble assignment is never mutated back to "live"; a replacement is
+  always a brand-new row.** Mirrors the append-only philosophy already used for
+  `ResultRevision`/`AuditEvent`/M2's roster withdraw-vs-remove split: the full assignment history
+  for an attempt (including every past mistake and its reason) stays reconstructible from the
+  table, never overwritten in place. R40 ("no hard-delete after attempt assignment") is applied
+  the same way to scramble assignments.
+- **`revealed_by` has no foreign-key constraint to `users`, unlike `applied_by`/`checked_by`/
+  `voided_by`.** In self-scramble mode, the competitor themselves is the one who "reveals" their
+  own scramble (there is no staff action involved in casual mode — see 00 §7.2), and a competitor
+  is an `event_entrants` row, not a `users` row. This mirrors `audit_events.actor_id`, which has
+  the identical staff-or-guest-actor shape and was already built with no FK for exactly this
+  reason. Caught by a real `DataIntegrityViolationException` during this milestone's own test
+  development (self-scramble reveal failing with a foreign-key violation), not discovered by
+  inspection — fixed before any version of this migration was committed.
+- **Self-scramble "unlock" is defined as: this attempt is the lowest-numbered attempt for this
+  entrant whose result is still `PENDING`.** `00` §7.2 says "no future attempt sequence is
+  available before the attempt is unlocked" without defining "unlocked" precisely. This mirrors
+  the existing sequential attempt-number model (attempts 1..N already exist once a round is
+  prepared) rather than introducing a new state: the moment a competitor's current attempt is
+  resolved, the next one's scramble becomes revealable, with no dependency on timer
+  start/stop state — a competitor can view the scramble before pressing "Ready — start timer" (as
+  the real physical workflow requires: see the scramble, apply it to the physical cube, *then*
+  start the clock).
+- **`GET /guest/.../current-scramble`'s abbreviated path from `08` is resolved as
+  `GET /attempts/{attemptId}/current-scramble`** (attempt-scoped, not a separate
+  `/guest/events/{eventId}/...` path), and it rides the guest cookie the same way the existing
+  `/attempts/**` routes already do (`AttemptController`'s start/stop/submit), rather than needing
+  a new `SecurityConfig` `permitAll` entry. This was the one deliberately-unresolved item carried
+  forward from M1/M2/M3 (see `08`'s row 50 history in TRACEABILITY.md) — resolved now because M4
+  is the milestone that actually needs it.
+- **`Attempt.scrambleAssignmentId` (an M2 placeholder column, always null before M4) is now
+  populated**, matching `08`'s literal DTO note ("`Attempt` DTO includes `scrambleAssignmentId?`").
+  Exposed in `AttemptDtos.AttemptView` to both staff and the owning competitor: it is an opaque
+  pointer only (never the notation), and the competitor-facing `current-scramble` endpoint
+  independently re-checks ownership and unlock status regardless of what ID is presented, so
+  knowing the ID grants no access by itself.
+- **Known, documented side effect: generating a scramble batch bumps every attempt's
+  optimistic-lock `version`** (since `ScrambleService` saves each `Attempt` row to attach its new
+  `scrambleAssignmentId`). A staff client that fetched attempt state *before* batch generation
+  and then submits a judge result with a stale `expectedVersion` gets the existing, correct
+  `409 STALE_VERSION` response (R39/concurrency behavior unchanged) — this is not a new failure
+  mode, just a new, real reason the version can change between two reads, worth naming so nobody
+  mistakes a `STALE_VERSION` response right after batch generation for a bug.
+- **Print also reveals.** `00` §7 says "print only for officials," and the print view is how a
+  staff-prepared-mode scrambler conventionally receives the notation at all (there is no separate
+  "give the scrambler a copy" step) — so printing a batch marks every not-yet-revealed assignment
+  in it as revealed (audited once per batch, not once per assignment) rather than leaving an
+  unaudited path where notation left the vault without ever being marked revealed.
+- **Encryption key management: environment-variable injection with a logged, ephemeral
+  dev-only fallback — no KMS/cloud secret manager integration**, per the explicit instruction not
+  to create cloud resources. `00` §10's "store secrets in platform secret manager/environment
+  injection, never commit" is satisfied by `TWISTMEET_SCRAMBLE_ENCRYPTION_KEY` (a 32-byte
+  AES-256 key, Base64-encoded); `04`/`08`'s "keys managed outside the database" requirement holds
+  because the key never touches a database table. If that variable is unset (true for this
+  sandbox and for CI), `ScrambleEncryptionService` generates a random key once per process and
+  logs a clear warning that it won't survive a restart — the same "safer simpler default,
+  documented" pattern already used for the dev mail catcher (OD04) and the M1 guest-credential
+  TTL placeholder. A real deployment must set this variable via its actual secret manager before
+  any real event uses the scramble module — not yet true of this sandbox/CI environment, which
+  is why the fallback exists at all.
+- **No groups/stations model exists yet** (same gap already noted for M2/M3), so "role-scoped
+  reveal" is scoped to *any* staff holding Organizer/Judge/Scrambler for the *event*, not to a
+  specific assigned scrambler for a specific attempt/station as `07` S07's fuller vision
+  describes. Documented as a scoping simplification consistent with the existing event-role model,
+  not a silent narrowing of the authorization requirement (every role named in `00` §5 is still
+  enforced; only the finer per-station assignment granularity is deferred).
+
+## Deviations from documents
 
 None yet. This section will record any approved deviation with rationale and the specific
 document/section it diverges from.
