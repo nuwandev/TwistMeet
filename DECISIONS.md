@@ -4,15 +4,21 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
-## Status: M2 complete — Competition engine
+## Status: M3 complete — Organizer and competitor experience
 
-M0 and M1 are complete and recorded below unchanged. M2 is now also complete: ruleset
-versioning/snapshots, round setup/lifecycle, the attempt state machine (judge and self-timed
-modes), roster remove-vs-withdraw, judge result entry with append-only revisions, authorized
-correction requests/decisions, the pure scoring engine (full conformance-vector coverage), and
-the standings/judge/correction-queue UI. See "M2 implementation decisions" below for what M2 adds
-and what remains explicitly out of scope (scramble vault/generation, advancement wiring,
-publishing, public display, export — all deferred to later milestones per instruction).
+M0, M1, and M2 are complete and recorded below unchanged. M3 is now also complete: the event
+creation wizard, Tournament Control, judge-entry validation/undo, the competitor waiting room's
+explicit lifecycle states, connection-loss/offline handling, and the shared
+loading/empty/error/retry/offline/confirm component set used across all of them. OD16
+(correction-decision authority) is resolved — organizer-only — by explicit instruction; see "M3
+implementation decisions" below. Scramble vault/generation, advancement commit, public
+publishing/display, and export remain out of scope (later milestones).
+
+M2 is complete: ruleset versioning/snapshots, round setup/lifecycle, the attempt state machine
+(judge and self-timed modes), roster remove-vs-withdraw, judge result entry with append-only
+revisions, authorized correction requests/decisions, the pure scoring engine (full
+conformance-vector coverage), and the standings/judge/correction-queue UI. See "M2 implementation
+decisions" below for what M2 adds.
 
 Two M1 follow-up passes since then, both recorded further down this file: closing a residual
 auth-enumeration/account-hijack gap by redesigning registration as double opt-in, and modernizing
@@ -397,18 +403,26 @@ per `00` §12. None of these change a product requirement or default without a d
 they are either genuine spec conflicts (flagged as such) or implementation choices the specs left
 unspecified.
 
-- **Genuine spec conflict — correction-decision authority (needs confirmation, resolved
-  conservatively for now).** `00` §5 and `08`'s correction-decision endpoint both say decisions are
-  **organizer-only**. `02-rules-and-integrity.md`'s narrative prose instead describes "judge or
-  organizer" as able to decide a correction request. These directly conflict. Per `00` §12's own
-  precedence rule (the authoritative contract and its directly-referenced data/API contract outrank
-  looser narrative text elsewhere), `CorrectionService.decide()` restricts decisions to
-  **Organizer/Owner only** — a judge can create nothing-to-do-with-deciding-their-own-case
-  situation, since judges already enter results and allowing the same judge to also decide
-  corrections on their own entries would weaken the separation the correction workflow exists to
-  provide. **This needs explicit confirmation before M3** if a different authority split (e.g.
-  judges deciding corrections on rounds they judged, organizers deciding the rest) was actually
-  intended — flagged in the open decisions register as OD16.
+- **Genuine spec conflict — correction-decision authority — resolved at M3 (explicit
+  instruction): organizer-only.** `00` §5 and `08`'s correction-decision endpoint both say
+  decisions are **organizer-only**. `02-rules-and-integrity.md`'s narrative prose instead
+  describes "judge or organizer" as able to decide a correction request. These directly
+  conflict. Per `00` §12's own precedence rule (the authoritative contract and its
+  directly-referenced data/API contract outrank looser narrative text elsewhere), and per
+  explicit instruction at M3 confirming this reading, `CorrectionService.decide()` restricts
+  decisions to **Organizer/Owner only** — a judge cannot decide a correction, including one on
+  an attempt they themselves judged, since judges already enter results and allowing the same
+  judge to also decide corrections on their own entries would weaken the separation the
+  correction workflow exists to provide. **OD16 is now closed** (previously open in this
+  register, removed from the open-decisions table below). Enforcement: `TenantAccessService
+  .requireOrganizer()` on the server (tested in `CorrectionFlowTest
+  .onlyOrganizerCanDecideACorrectionNotJudgeOrStranger`, which asserts a judge gets `403`, not a
+  hidden button); the web correction queue (`events/[eventId]/corrections`) additionally reads
+  the caller's own role via `GET /events/{eventId}/my-role` and hides the decision controls
+  entirely for a non-organizer viewer, replacing them with "Only organizers can decide
+  correction requests. You can still view them." — consistent with `07`'s own rule that access
+  control must never be UI-only, since the server check is what actually enforces this and the
+  UI hiding is purely to avoid presenting a control that would just 403.
 - **Round creation is permitted in DRAFT, REGISTRATION_OPEN, and REGISTRATION_LOCKED event states,
   not read literally as "draft event only."** `08` describes round setup as a draft-event action.
   Taken literally, that would make it impossible to ever set up rounds for an event that has
@@ -511,11 +525,143 @@ unspecified.
 
 ## Open decisions register (M2 addition)
 
-| ID | Decision | Category | Owner | Needed by | Blocks that milestone? | Safe default (if any) | Source |
-|---|---|---|---|---|---|---|---|
-| OD16 | Correction-decision authority: organizer-only (current implementation, per `00`/`08`) vs. judge-or-organizer (per `02`'s narrative text) | Product | Product owner | Before M3 widens correction/judge workflows further | No — current conservative reading does not block M2 or M3 start, but should be confirmed before building more judge-facing correction tooling | Organizer/Owner only (implemented now, per `00` §12 precedence) | `00` §5; `08` correction-decision endpoint; `02` narrative text (conflicting) |
+**OD16 (correction-decision authority) was opened here at M2 and closed at M3 by explicit
+instruction: organizer-only, per `00` §5 and `08`, over `02`'s conflicting narrative text.** See
+"M2 implementation decisions" above for the original conflict and "M3 implementation decisions"
+below for the closure and its enforcement (server 403 + UI gating). No open-register row remains
+for it — this paragraph is the record of its resolution, kept here rather than silently deleting
+the ID.
 
-## Deviations from documents
+## M3 implementation decisions
+
+Additions, conflict resolutions, and simplifications made while building M3 (organizer and
+competitor experience), per `00` §12.
+
+- **OD16 closed: correction-decision authority is organizer-only**, per explicit instruction
+  confirming `00` §5/`08` over `02`'s conflicting narrative text. No code change was needed on
+  the API side — `CorrectionService.decide()` already called
+  `tenantAccessService.requireOrganizer()`, and `CorrectionFlowTest
+  .onlyOrganizerCanDecideACorrectionNotJudgeOrStranger` already asserted a judge gets `403`. What
+  M3 adds: (1) a new `GET /events/{eventId}/my-role` endpoint (see below) so the web correction
+  queue can know the caller's own role and hide the decide-controls for a non-organizer rather
+  than show buttons that would just 403; (2) this closure note, replacing OD16's "needs
+  confirmation" framing in the M2 section with a resolved one.
+- **New minimal endpoint: `GET /events/{eventId}/my-role`.** `00` §5/§9 require "Display role
+  and event scope visibly on staff pages" (`RoleBanner` in `07`'s shared-component list). M1/M2
+  had no way for a judge who is not an organization member to discover their own role — every
+  other organizer-scoped read (`GET /events/{eventId}` itself) 404s for a non-member judge, by
+  design (anti-enumeration). `TenantAccessService.resolveStaffRole()` resolves
+  OWNER/ORGANIZER/JUDGE the same way `requireJudgeOrOrganizer` already does, just returning the
+  resolved role instead of only checking a specific action; 404 for a total stranger, matching
+  every other check in that class. Tested in `MyRoleApiTest`.
+- **New field: `Round.startedAt`.** `07` S08 Tournament Control requires "time since round
+  start." `Round` had no timestamp distinct from `createdAt` (when the round was configured,
+  while still `DRAFT`) for when it actually went `LIVE`. Added `startedAt`, set once in
+  `Round.setState()` the first time state becomes `LIVE` (migration `V4`). A minimal, narrowly
+  scoped addition — not a new capability, just exposing a timestamp the lifecycle already
+  implies.
+- **`PUT /corrections/{id}/decision`'s `reason` field is now server-validated `@NotBlank`,
+  not just documented as required.** `07` S10 says "Require decision reason," but the M2 DTO
+  only capped its length (`@Size(max=500)`) without requiring it be non-empty. `07`'s own design
+  checklist says access/validation rules must never be UI-only ("do not encode access control
+  only as hidden UI" — the same principle applies to a required-field rule enforced only by a
+  client-side `required` attribute). Fixed server-side; tested in
+  `CorrectionFlowTest.decisionRequiresANonBlankReason` (empty string and omitted field both
+  `400`).
+- **Tournament Control (S08) is composed entirely from existing M2 reads — round, round
+  attempts, event corrections filtered client-side to the live round's attempt IDs — not a new
+  aggregate endpoint.** Per this milestone's explicit instruction to reuse M2 APIs and add only
+  what the specs require, and because the underlying data (round state, attempt list, pending
+  corrections) was already each independently available and independently authorized. The one
+  new read (`my-role`) and one new field (`startedAt`) above were added only because nothing
+  existing could supply that specific information at all, not for convenience.
+- **Tournament Control's "Close round" is one user-facing action that performs two server
+  transitions (`review` then `close`) in sequence.** `00` §6 requires `LIVE → REVIEW → CLOSED`
+  as two distinct transitions (REVIEW exists specifically so unresolved corrections can block
+  it); `07` S08 describes "close round when eligible" as a single control-room action. Both are
+  true at once: the round lifecycle itself is unchanged (still two real state transitions,
+  still blocked by pending attempts/corrections exactly as `RoundService` already enforced), but
+  the Tournament Control UI collapses them into one confirm dialog rather than requiring the
+  organizer to separately hunt for an "Enter review" button first. The event-detail page still
+  exposes "Enter review" and "Close round" as separate actions for a round that isn't currently
+  the live one shown in Tournament Control.
+- **Pause/resume and close round require `ConfirmDialog` in M3's new Tournament Control UI,
+  consistent with `00` §5's "explicit confirmation required for round close... and event
+  archive"** (pause/resume isn't literally listed there, but is equally a live-event-affecting
+  action with no undo other than pausing again, so the same treatment was applied rather than
+  leaving one sensitive toggle unconfirmed next to ones that are).
+- **"Request help" (P05's always-available help/escalation action, distinct from a
+  correction request) is explicitly NOT implemented.** `07` P05 lists `Request judge/help` as
+  available any time during an attempt (before a result exists), separately from the
+  "correction-request action" that appears only after a result is recorded. M2's
+  `CorrectionService.create()` requires the attempt to already have a non-`PENDING` result (it
+  exists to contest a result, not to page staff) — relaxing that check to also serve as a
+  general help call would conflate two different concepts (contesting a recorded result vs.
+  flagging a problem before one exists) and there is no backing data model for a help ticket in
+  `00`/`08` (no entity, no staff-facing queue distinct from the correction queue). Building a
+  real help-ticket subsystem is a genuine new capability, not a UI gap, and is left for an
+  explicit future requirement rather than faked with a button that silently does nothing useful
+  pre-result. Documented here rather than silently omitted; `WaitingRoomPage`'s file comment
+  cross-references this note.
+- **Competitor check-in state is informational only; it never gates the attempt UI.** Drafting
+  the waiting room's explicit lifecycle states (`07` P03: waiting, check-in needed, ready, round
+  not open, disconnected, withdrawn) initially rendered "ask staff to check you in" as a hard
+  gate that hid the entire attempt list — but the backend never requires `checkInState ==
+  CHECKED_IN` to start/stop/submit an attempt (`AttemptService` has no such check), so that would
+  have been a new, invented restriction with no server-side backing, silently blocking a
+  competitor from ever seeing their attempt once a round went live if nobody had recorded their
+  check-in. Caught via the M3 E2E phone-mode script (`m3_e2e_competitor.mjs`) actually exercising
+  the flow without a check-in step and finding the attempt UI never appeared. Fixed: check-in
+  state is now shown as a badge plus an informational line, and the attempt list renders
+  regardless of it — matching what the server actually enforces.
+- **Event creation wizard (S03) is simplified to the fields `CreateEventRequest` accepts, in
+  three steps (basics, operations, review) instead of `07`'s four (basics, competition,
+  operations, rules-preview-and-create).** Puzzle type is always 3×3×3 (`00` §4's only supported
+  default — there is no puzzle-type selection to show), and round/format/advancement setup
+  happens on the event-detail page after the draft exists (unchanged from M2), not inside the
+  wizard — `08`'s event-creation endpoint has no fields for rounds. "Rules preview" has no
+  backing content to preview beyond the ruleset version, so step 3 shows a plain review of the
+  entered fields instead of a separate rules document. There is no cross-reload draft
+  persistence: the event is not created until the wizard's final step, so "save draft" means "go
+  back and change anything before creating," not a resumable draft across browser sessions.
+  Documented here as a simplification, not a silently dropped requirement.
+- **Shared component set added, matching `07`'s "Common components and states" list where this
+  milestone's screens need them:** `StatusBadge`, `SavedState`, `LoadingState`, `EmptyState`,
+  `ErrorState`, `OfflineState`, `ConfirmDialog`, `RoleBanner`, and a `LiveAnnouncer` (a visually
+  hidden `aria-live` region) for screen-reader status announcements. `TimeInput` and
+  `PenaltyPicker` are not separately extracted as components — the existing inline time-input
+  and penalty-select markup in judge entry and the competitor attempt screen already meets the
+  same behavioral requirements (numeric keyboard via `type="number"`, inline validation, retained
+  raw value, mutually exclusive penalty options) and extracting them was not required to satisfy
+  any requirement beyond code organization. `LiveTable` (an accessible table with stable row
+  order, polite live updates, no focus theft) is approximated by plain semantic `<table>`
+  elements with `<caption>` throughout M2/M3 rather than built as a separate component, since
+  none of this milestone's tables yet have the kind of live, reordering updates `LiveTable`
+  exists to handle gracefully (Tournament Control's table re-renders on an explicit reload, not a
+  push stream — SSE/WebSocket live updates are `08` row 63, still M3-adjacent/real-time scope not
+  built here, not reused from this milestone).
+- **`useOnlineStatus` (browser `online`/`offline` events) is the connection-loss signal, not a
+  heartbeat ping to the API.** `07`'s `OfflineState` component doesn't specify a detection
+  mechanism. The browser's own connectivity events are simpler and sufficient to demonstrate the
+  required state (verified in E2E by toggling Playwright's network-offline emulation on an
+  already-loaded page, which fires the same `offline`/`online` events a real network drop would);
+  a true round-trip heartbeat (detecting "online per the OS, but the API itself is unreachable")
+  is a further refinement not built here, since `navigator.onLine` already covers the literal
+  "connection-loss" case this milestone's instruction named, and every page's existing fetch-error
+  handling (`ErrorState` with retry) already covers the "API unreachable while nominally online"
+  case on its own.
+- **Judge entry's "undo window" re-submits the previous value as a new revision; it is only
+  offered after a correction to an already-recorded result, not after the very first entry.**
+  `07` S09 says "Save attempt... immediate saved receipt + undo window 10 seconds (undo creates
+  revision; cannot erase)." Before any result is recorded there is nothing to "undo" back to —
+  the only previous state is `PENDING`, which `recordJudgeResult` cannot set (it is not a valid
+  judge-entry status). So undo is offered only when the save being undone itself overwrote a
+  prior `OK`/`DNF`/`DNS` value, and clicking it submits that prior value as a new
+  `PUT .../judge-result` call — a real, audited revision, never a client-side-only rollback.
+  Verified in `m3_e2e_organizer.mjs`: no undo button after the first save, one appears after a
+  correction, and clicking it restores the earlier value and is visible in the UI immediately.
+
+
 
 None yet. This section will record any approved deviation with rationale and the specific
 document/section it diverges from.

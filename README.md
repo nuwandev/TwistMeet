@@ -5,13 +5,16 @@ brand (see `DECISIONS.md`). The controlling specification is `product-docs/00-au
 read `product-docs/README.md` first. Build status, decisions, and traceability live in
 `M0-REPORT.md`, `DECISIONS.md`, and `TRACEABILITY.md` at the repo root.
 
-This is **Milestone 2** (competition engine): round setup/lifecycle, the attempt state machine for
-both physical-judge and phone-casual modes, roster management, judge result entry with append-only
-correction history, and the scoring/ranking engine — on top of Milestone 1's staff auth,
+This is **Milestone 3** (organizer and competitor experience): the event creation wizard,
+Tournament Control, judge-entry validation/undo, the competitor waiting room's explicit
+lifecycle/connection-loss states, and a shared loading/empty/error/offline/confirm component set
+— on top of Milestone 2's competition engine (round setup/lifecycle, the attempt state machine
+for both physical-judge and phone-casual modes, roster management, judge result entry with
+append-only correction history, and the scoring/ranking engine) and Milestone 1's staff auth,
 organizations, tenant isolation, event lifecycle, and guest join. Scramble generation/vault,
-advancement as an operational feature, publishing, and public display are not built yet — see
-`TRACEABILITY.md` for what's implemented vs. planned per milestone, and `DECISIONS.md` for the
-M2 implementation decisions.
+advancement as an operational feature, publishing, public display, and export are not built yet
+— see `TRACEABILITY.md` for what's implemented vs. planned per milestone, and `DECISIONS.md` for
+the M3 implementation decisions.
 
 ## Repository layout
 
@@ -121,9 +124,12 @@ logout, organizations, event create/edit/lifecycle (draft → registration open 
 reopened), join-code rotation, guest join with duplicate-name disambiguation, full roster
 management (add/edit/check-in/withdraw/remove), round setup and lifecycle (draft → preparing →
 ready → live → review → closed), the attempt state machine for both physical-judge and
-phone-casual modes, judge result entry with append-only revision history, competitor correction
-requests with organizer decisions, the pure scoring/ranking engine (every `09` conformance vector
-and property test), and a staff-only standings view are built and tested. Scramble generation/
-vault, advancement as an operational feature (the pure top-N/top-percent math is built but not
-wired to any endpoint), publishing, public display, and CSV export are not built yet (milestones
-M3–M5).
+phone-casual modes, judge result entry with append-only revision history (now with client-side
+validation, a saved receipt, and an undo window), competitor correction requests with
+organizer-only decisions (category selection, request-ID confirmation, required decision reason),
+the pure scoring/ranking engine (every `09` conformance vector and property test), a staff-only
+standings view, an event-creation wizard, a Tournament Control screen, and a competitor waiting
+room with explicit lifecycle and connection-loss states are built and tested. Scramble
+generation/vault, advancement as an operational feature (the pure top-N/top-percent math is
+built but not wired to any endpoint), publishing, public display, and CSV export are not built
+yet (milestones M4–M5).
