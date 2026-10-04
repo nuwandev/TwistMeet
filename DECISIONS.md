@@ -12,6 +12,11 @@ event lifecycle foundation, and guest join. See "M1 implementation decisions" be
 adds, and `M0-REPORT.md` §8 for the full completion summary (commands run, what works end to end,
 bugs found and fixed, remaining gaps).
 
+Two M1 follow-up passes since then, both recorded further down this file: closing a residual
+auth-enumeration/account-hijack gap by redesigning registration as double opt-in, and modernizing
+the stack to Java 25 LTS / Spring Boot 4.1.1 / PostgreSQL 18.6 / Node 24 LTS / Next.js 16.3.8. M2
+has not been started.
+
 ## Stack decision
 
 The repository contains no existing code, build files, or conventions to preserve. Adopting the
@@ -76,6 +81,7 @@ default must not be guessed.
 | OD12 | Subprocessor list (hosting, email, error-reporting, and other vendors) | Legal/Operations | Product owner | Before public beta | **Yes, for public beta sign-off**; depends on OD03/OD04 being resolved first | None | `04`, `12` |
 | OD13 | Expected pilot concurrency figure, to drive the "load test at 2× expected concurrency" exit criterion | Technical/Operations | Product owner + engineering | M6 | **Yes, for M6's load-test exit criterion**; does not block M1–M5 | None stated; `05` only says "revisit after pilot usage" | `01` Non-functional requirements; `12` Reliability/accessibility checklist |
 | OD14 | Object storage provider, if/when "generate on demand" for printable sheets proves insufficient | Technical | Engineering | Only if/when the generate-on-demand default proves insufficient, likely around M4 | No — `00` §10 explicitly permits deferring via generate-on-demand | Generate on demand, no object storage at launch (already the operating default) | `00` §10 |
+| OD15 | Neon PostgreSQL 18 project selection: create a new one or designate an existing non-PG18 project to upgrade | Technical/Operations | Product owner + engineering | Whenever Neon (vs. local/Docker Postgres) is actually wanted for a shared/deployed environment | No — local Docker/CI Postgres 18 remains the default and is unaffected | None — standing constraint forbids creating/altering/deleting a Neon project without this decision being made first | This file, "M1 follow-up: stack modernization," "Neon findings" |
 
 None of the "safe default" values above are treated as decided — they are the owner's starting
 point to confirm or override. Items marked "None" have no documented default and must not be
@@ -212,6 +218,176 @@ Three findings from the M1 review, addressed on the same branch before starting 
    from the CSRF-ignore list in `SecurityConfig` (it does not ride an existing session cookie any
    more than register/login do — a user clicking a link in their email client has no prior CSRF
    cookie to echo back), so it would have 403'd in practice; added alongside register/login/join.
+
+## M1 follow-up: double opt-in registration 
+
+**Finding.** After the M1 review's non-enumeration fix, a *newly registered but unverified*
+account could still log in successfully — registration created a `User` row with the
+caller-submitted password immediately, before the email link was ever clicked. Logging in with
+that account's email and the *wrong* password returned `401`, while logging in for an email that
+had genuinely never been registered also returned `401` with the same body — so unverified
+accounts didn't reopen the original enumeration gap directly. The real problem was worse: because
+the password was collected at registration, an attacker could register *someone else's* email with
+an attacker-chosen password, and if the mailbox owner later clicked the verification link without
+reading carefully, they would activate an account whose password the attacker already knew.
+
+**Decision: double opt-in, password set only at verification, never at registration.**
+`POST /auth/register` now collects only email + display name and never touches the `users` table;
+it upserts a `pending_registrations` row (email, display name, a hashed single-use token, an
+expiry) and emails the raw token in a link. No `User` row, and therefore no account to log into,
+exists until `POST /auth/email/verify` is called with that token **and** a password — whoever
+submits that call is the one who ends up controlling the password, which is the actual security
+property needed (not just "don't enumerate accounts," but "don't let an attacker pre-load a
+password onto an account the victim will activate"). A second registration for the same
+still-unverified email **reissues** (overwrites) the pending row's token rather than creating a
+second one, so an earlier attacker-sent link stops working the moment the real owner re-registers
+— the attacker cannot keep a stale link alive waiting for the victim to click an old email.
+Registration and verification responses remain structurally identical regardless of branch taken
+(same status, same shape, no account-existence field), and both endpoints are rate-limited (register:
+8/15min by client address, plus a silent per-email cap of 5/hour on actually sending mail, which
+never changes the HTTP response — it only bounds inbox spam from repeated registration attempts
+against one address; verify: 10/15min by client address). This never overwrites an existing
+*verified* account's password — the `pending_registrations` upsert only ever touches the unverified
+pending record, never a `User` row, so an already-active account is untouched by any number of
+re-registration attempts against its email.
+
+Tested in `AuthFlowTest`: an unverified registration cannot log in and is indistinguishable from no
+account at all (`unverifiedRegistrationCannotLoginAndIsIndistinguishableFromNoAccountAtAll`); a
+second registration invalidates the first token and the hijack scenario cannot succeed — the
+account ends up with the *second* registration's display name and whatever password was typed into
+the *second* verification call, never the first/attacker's
+(`aSecondRegistrationForAnUnverifiedEmailInvalidatesTheFirstLinkRatherThanStealingIt`); tokens are
+single-use; both endpoints are rate-limited; and registration responses stay identical for a new
+vs. an already-verified email. Verified end to end with a real browser (Playwright): registration
+→ check-your-email → click link → set password → land on dashboard → log out → log back in with
+the chosen password, and separately, the explicit hijack scenario (attacker registers victim's
+email → victim re-registers, superseding the attacker's token → the attacker's stale link, even
+submitted with a password, fails `400 TOKEN_INVALID` → the victim's own current link succeeds and
+creates the account with the victim's own password and display name → the attacker's password
+never works for login).
+
+`EmailVerificationToken`/`EmailVerificationTokenRepository` are removed, replaced by
+`PendingRegistration`/`PendingRegistrationRepository` (migration `V2`). `MailService` became an
+interface (`SmtpMailService` for real sending, `CapturingMailService` for tests, selected by Spring
+profile) so tests can read back the real verification token instead of parsing a sent email body.
+
+## M1 follow-up: stack modernization to a current supported baseline
+
+Per explicit instruction, the greenfield stack (nothing here predates this repo, so there is no
+compatibility tail to preserve) was moved to current, non-beta, mutually compatible releases,
+verified against each project's own release notes/compatibility matrix rather than assumed:
+
+| Component | Was | Now | Notes |
+|---|---|---|---|
+| Java | 21 (LTS) | **25 LTS** (toolchain; patch resolved by whichever JDK 25 build the Foojay resolver or local install provides) | Spring Boot 4.1's minimum is Java 17; 25 has first-class support. Gradle wrapper bumped to 9.8.0, the first Gradle line with full Java 25 toolchain + daemon support; `settings.gradle.kts` adds the `foojay-resolver-convention` plugin so Gradle can auto-download a matching JDK on any machine (including CI) that doesn't already have one. |
+| Gradle | 8.10.2 | **9.8.0** | Required for Java 25 support (9.1.0 is Gradle's stated minimum; 9.8.0 was current at the time of this change). |
+| Spring Boot | 3.3.4 | **4.1.1** | Current stable minor; required migration work below. |
+| PostgreSQL (Flyway's PG-specific module, pgjdbc) | managed by Boot 3.3 | **Flyway 12.4.0 / pgjdbc 42.7.13**, both via Spring Boot 4.1.1's own dependency-management BOM (not hand-pinned) | Flyway 12.4.0 has verified PostgreSQL 18 support (older Flyway lines, below ~11.20.3, do not); pgjdbc 42.7.13 is the current release and postdates the 42.7.12 security fix (CVE-2026-54291), so nothing older than that should ever be used. |
+| PostgreSQL (database) | 16 (`postgres:16-alpine`) | **18.6** (`postgres:18.6-alpine`) | `docker-compose.yml` and the CI `postgres:` service image both bumped. |
+| Node.js | 22.x | **24.x LTS** ("Krypton"; `.nvmrc` pins `24.21.0`) | |
+| Next.js | 14.2.35 | **16.3.8** | See CVE note below — not 16.2.x as originally targeted. |
+| React / ReactDOM | 18 | **19.3.0** | Next.js 16 recommends React 19 (18 is supported but deprecated, and will stop being supported in Next 17). |
+| TypeScript | ^5 (unpinned) | **5.9.3** (pinned) | Deliberately *not* bumped to TypeScript 7 (the new Go-based compiler, currently the npm `latest` tag) — that is an unrelated, major, independent tooling change outside what was asked, and 5.9.3 is still a fully current, supported 5.x release. |
+| ESLint | ^8 | **^9.39.5** | `eslint-config-next@16.3.8` requires ESLint ≥9. Not bumped to ESLint 10 (also newly current) for the same "don't blindly upgrade unrelated/unverified dependencies" reason — 9.39.5 is `eslint-config-next`'s own stated minimum-plus-current-patch line. |
+
+**Deviation from the literal instruction (Next.js 16.2 → 16.3.8), documented per this file's own
+rule for approved deviations.** `npm audit` on the originally pinned `next@16.2.12` reported a
+**critical** advisory (GHSA-p293-qw3h-jr36 and related: unauthenticated RCE on Windows-hosted
+servers, in the AVIF image-optimization path, and in `next/og`'s `ImageResponse`) affecting every
+Next.js release from `9.3.4-canary.0` through `16.3.5` inclusive — meaning 16.2.x is affected and
+only fixed starting at 16.3.6+. Shipping a pinned version with a known critical RCE just to match
+the literal "16.2" instruction would be worse than deviating from it, so this upgrades to **16.3.8**
+(the current stable release at the time of this change) instead. Everything else about the
+"16.2" request — current, non-beta, React 19-compatible — still holds; only the exact minor line
+changed, for a security reason stronger than the original instruction anticipated.
+
+**Known accepted risk, not fixed (tracked, not hidden):** `npm audit` separately reports a *high*
+severity advisory in `braces` (GHSA-vfj7-8cjw-p6xm, a regex stack-exhaustion DoS), reached
+transitively through `eslint-config-next@16.3.8 → @next/eslint-plugin-next → fast-glob →
+micromatch → braces@3.0.3` — which is already the latest published `braces` version; no fixed
+release exists upstream as of this writing. `npm audit fix --force`'s only suggested remedy is
+downgrading `eslint-config-next` all the way back to `14.2.35`, which would silently undo the
+Next.js version bump (and reintroduce the critical RCE above) to dodge a lint-tooling-only,
+dev-time, non-shipped dependency's unresolved advisory — a clearly worse trade, so not taken. This
+is a devDependency of the lint tool only; it is never bundled into the built app or reachable by
+any request the running service handles. Revisit when `braces`/`micromatch`/`fast-glob` publish a
+fix.
+
+### Spring Boot 3→4 migration notes (what actually had to change, beyond version numbers)
+
+Spring Boot 4 is not a drop-in version bump; the following were required for the existing M1 code
+to keep working, found by actually compiling and running the test suite against 4.1.1, not assumed:
+
+- **Flyway auto-configuration moved behind a dedicated starter.** Adding `flyway-core` directly no
+  longer triggers Spring Boot's Flyway auto-configuration in Boot 4; `spring-boot-starter-flyway`
+  must be added instead (it pulls in `flyway-core` at Spring Boot's managed version).
+- **Jackson 3 is the new default**, under the `tools.jackson` groupId/package — not `com.fasterxml.jackson`.
+  `ObjectMapper` is also no longer freely constructible via `new ObjectMapper()`; the
+  Jackson-3-idiomatic construction is `JsonMapper.builder().build()`. `SecurityConfig`'s injected
+  `ObjectMapper` and every test's local JSON parsing (`AuthFlowTest`, `CrossTenantAccessTest`,
+  `EventLifecycleAndJoinTest`, `RosterAuthorizationTest`, `TestApiClient`) were updated accordingly.
+- **Spring Security 7's `DaoAuthenticationProvider` constructor changed**: it now takes the
+  `UserDetailsService` directly (`new DaoAuthenticationProvider(userDetailsService)`) instead of a
+  no-arg constructor plus `setUserDetailsService(...)`; `setPasswordEncoder(...)` is still a setter
+  called afterward. Updated in `AuthManagerConfig`.
+- **`TestRestTemplate` moved out of `spring-boot-test`** into a new `spring-boot-resttestclient`
+  starter (package `org.springframework.boot.resttestclient`), which is no longer autowired by
+  `@SpringBootTest` alone — test classes need `@AutoConfigureTestRestTemplate`
+  (`org.springframework.boot.resttestclient.autoconfigure`), and the starter itself needs
+  `spring-boot-restclient` on the classpath for its `RestTemplateBuilder`/`RestTemplateBuilder`-backed
+  bean. Both added to `api/build.gradle.kts`; `@AutoConfigureTestRestTemplate` added to
+  `AbstractIntegrationTest`.
+- **Apache HttpClient5's cookie management conflicted with this test suite's own cookie-jar
+  design.** `TestApiClient` deliberately manages each simulated user's cookies itself (register,
+  login, guest-join, CSRF double-submit — all tested like a real browser would see them); Spring
+  Boot 4's `RestTemplateBuilder` auto-detects HttpClient5 on the test classpath (needed, as before,
+  to avoid `HttpRetryException` on a streamed POST that gets a non-2xx response) and builds it with
+  Apache's own cookie management enabled by default. That cookie store lives on the one underlying
+  `HttpClient`, shared by every `TestApiClient` instance in a test via the single injected
+  `TestRestTemplate` bean — so one simulated user's session cookie could silently leak into a
+  different, supposedly-independent `TestApiClient` in the same test, intermittently, depending on
+  test/method order. Fixed with a test-only `RestTemplateBuilder` bean
+  (`StatelessHttpClientTestConfig`) that explicitly disables Apache's cookie management
+  (`HttpClientBuilder::disableCookieManagement`), restoring `TestApiClient`'s manual `Cookie` header
+  as the only cookie state involved — this is a test-harness-only fix; nothing about it touches how
+  the running application itself handles cookies.
+- **`google-java-format` (via the Spotless Gradle plugin) needs JDK 16+ compiler-internals access**
+  that is denied by default on modern JDKs; `api/gradle.properties` now sets `org.gradle.jvmargs`
+  with the `--add-exports`/`--add-opens` flags Spotless's own formatter step needs to run at all.
+  Pinned Spotless's `googleJavaFormat` version to **1.30.0** — Spotless 8.10.x's own stated
+  validated default for JVM 21+ (and its stated minimum for JVM 25+); newer `google-java-format`
+  releases exist but are not yet validated against this Spotless version, so not used.
+- **Next.js 16 removed the `next lint` command** (deprecated since 15.5); `web/package.json`'s
+  `lint` script now runs `eslint .` directly, backed by a new flat-config `web/eslint.config.mjs`
+  (replacing the removed `.eslintrc.json`) that re-exports `eslint-config-next`'s flat config array.
+  The upgraded `eslint-plugin-react-hooks` (bundled transitively via `eslint-config-next`) added a
+  new `react-hooks/set-state-in-effect` rule that flags the pre-existing, intentional
+  fetch-on-mount/fetch-on-change pattern in `web/src/app/dashboard/page.tsx` and
+  `web/src/app/events/[eventId]/page.tsx` (an effect calling an async function that eventually
+  calls `setState`); suppressed with a targeted `eslint-disable-next-line` and a comment at each of
+  the three call sites rather than restructuring working, already-tested data-loading code for a
+  new lint rule's heuristic.
+- **Next.js 16 auto-generates `AGENTS.md`/`CLAUDE.md` on `next dev`** by default (a new
+  AI-agent-onboarding feature). Disabled via `agentRules: false` in `web/next.config.mjs` — this
+  repo already has its own agent-facing docs (`DECISIONS.md`, `TRACEABILITY.md`, `M0-REPORT.md`)
+  and doesn't want a second, auto-generated set appearing locally on every `next dev` run.
+
+### Neon findings (not resolved — no suitable project exists yet)
+
+Per instruction, inspected the connected Neon account's existing projects with the read-only Neon
+MCP tools (`list_projects`); **no project was created, altered, or deleted, and no connection
+string or other secret was requested or exposed** — `get_connection_string` is explicitly unavailable
+in read-only mode regardless. Five projects exist in this account, running PostgreSQL 14, 16, 17,
+17, and 17 respectively; **none runs PostgreSQL 18**, and none is named or otherwise identifiable
+as belonging to this project. So there is currently no existing Neon project this app could point
+at without creating a new one — which this task was explicitly told not to do. Neon connection
+configuration therefore remains environment-variable-only and undecided in practice (the existing
+`TWISTMEET_DB_URL`/`_USER`/`_PASSWORD` variables already support pointing at a Neon host once a
+project exists; see the new README note under "Using Neon instead of local/Docker Postgres" for
+the pooled-vs-direct-connection guidance to follow when one is created). **This is an open decision
+(OD15 in the register below)**, not a silent gap: creating (or choosing an existing) Neon
+PostgreSQL 18 project for this app is left to the product owner/engineering lead, outside this
+session's standing constraints.
 
 ## Deviations from documents
 

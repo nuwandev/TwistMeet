@@ -12,16 +12,18 @@ milestone.
 
 ## Repository layout
 
-- `api/` — Spring Boot (Java 21) modular monolith API, PostgreSQL, Flyway migrations.
-- `web/` — Next.js (TypeScript) web app.
+- `api/` — Spring Boot 4.1.1 (Java 25 LTS) modular monolith API, PostgreSQL 18, Flyway migrations.
+- `web/` — Next.js 16.3.8 (TypeScript, React 19) web app.
 - `product-docs/` — the specification package (read-only; don't edit as part of implementation).
 - `docker-compose.yml` — local Postgres + a dev-only mail catcher.
 
 ## Prerequisites
 
-- Java 21 (the Gradle wrapper in `api/` pins Gradle 8.10.2; no separate Gradle install needed).
-- Node 22.x (see `web/.nvmrc`) and npm.
-- Docker (for local Postgres + mail catcher) — or a local PostgreSQL 16 instance if Docker isn't
+- Java 25 LTS (the Gradle wrapper in `api/` pins Gradle 9.8.0, which auto-provisions Java 25 via
+  the Foojay toolchain resolver if it isn't already installed — no separate JDK install needed on
+  a machine with normal internet access).
+- Node 24.x LTS (see `web/.nvmrc`) and npm.
+- Docker (for local Postgres + mail catcher) — or a local PostgreSQL 18 instance if Docker isn't
   available in your environment (see note below).
 
 ## Local setup
@@ -36,10 +38,24 @@ milestone.
    local mail catcher (MailDev) on SMTP `1025` with a web inbox at `http://localhost:1080`. No
    production email provider is configured — see `DECISIONS.md` OD04.
 
-   > If Docker isn't available in your environment, install PostgreSQL 16 locally and create a
+   > If Docker isn't available in your environment, install PostgreSQL 18 locally and create a
    > matching role/database (`createuser twistmeet`, `createdb -O twistmeet twistmeet`), then set
    > `TWISTMEET_DB_URL`/`TWISTMEET_DB_USER`/`TWISTMEET_DB_PASSWORD` accordingly. Email sending will
    > simply fail silently (logged, not thrown — see `MailService`) without a mail catcher running.
+   >
+   > **Using Neon instead of local/Docker Postgres:** set the same three environment variables to
+   > point at a Neon PostgreSQL 18 project instead — never commit the values. Use Neon's **pooled**
+   > connection string (the `-pooler` host, PgBouncer in transaction mode) for `TWISTMEET_DB_URL` at
+   > runtime, since the app only ever needs short-lived request-scoped connections through
+   > HikariCP. Flyway, however, needs a **direct** (non-pooled) connection for migrations — session
+   > state and advisory locks it may use don't survive PgBouncer's transaction-mode pooling — so if
+   > you run migrations by hand against Neon (`./gradlew flywayMigrate` or equivalent), point that
+   > one invocation at the direct (non-`-pooler`) host instead; `bootRun`'s own startup migration
+   > uses whatever `TWISTMEET_DB_URL` is set to, so for everyday dev prefer the direct host there
+   > too and only switch the running app to the pooled host for a deployed/shared environment. See
+   > `DECISIONS.md` OD15 for the full rationale and current findings (no existing Neon project in
+   > this account runs PostgreSQL 18 as of this writing; one would need to be created separately —
+   > not done here per the standing no-create/no-alter/no-delete constraint on Neon projects).
 
 2. **Run the API** (migrations run automatically via Flyway on startup):
 
@@ -69,8 +85,12 @@ milestone.
    The web app listens on `http://localhost:3000` and talks to the API at
    `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8080`).
 
-4. **Try it:** open `http://localhost:3000`, create a staff account, create an organization and a
-   draft event, open registration, and open the join link shown on the event page in a different
+4. **Try it:** open `http://localhost:3000`, create a staff account — registration is double
+   opt-in: submitting email + display name sends a verification link (check the mail catcher's web
+   inbox, or the API's debug log, for it) and you choose your password only after clicking that
+   link, never at registration (see `DECISIONS.md` "M1 follow-up: double opt-in registration") —
+   then create an organization and a draft
+   event, open registration, and open the join link shown on the event page in a different
    browser/incognito window to join as a guest.
 
 ## Running checks
