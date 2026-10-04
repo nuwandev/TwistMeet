@@ -48,8 +48,9 @@ class AuthFlowTest extends AbstractIntegrationTest {
   void registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered() throws Exception {
     // Review finding: registration used to answer 201 for a new email and 409 EMAIL_IN_USE for
     // an existing one — two distinguishable outcomes a caller could use to enumerate which
-    // emails are registered. Both calls below must now be indistinguishable.
-    ResponseEntity<String> firstAttempt =
+    // emails are registered. The two REGISTER calls below (not login) must now be
+    // indistinguishable: same status, same body, for a brand-new email and a duplicate one.
+    ResponseEntity<String> registerNewEmail =
         client.post(
             "/api/v1/auth/register",
             Map.of(
@@ -61,25 +62,29 @@ class AuthFlowTest extends AbstractIntegrationTest {
                 "Dup"));
     client.clearCookies();
 
-    ResponseEntity<String> secondAttempt =
+    ResponseEntity<String> registerSameEmailAgain =
         client.post(
             "/api/v1/auth/register",
             Map.of(
                 "email", "dup@example.com", "password", "another-password", "displayName", "Dup2"));
     client.clearCookies();
 
-    assertThat(secondAttempt.getStatusCode().value())
-        .isEqualTo(firstAttempt.getStatusCode().value());
-    assertThat(secondAttempt.getBody()).isEqualTo(firstAttempt.getBody());
-    assertThat(secondAttempt.getStatusCode().value()).isEqualTo(202);
+    // This is the comparison the review asked for: the register endpoint's own status and body,
+    // for the new-email case vs. the duplicate-email case, must be byte-for-byte identical.
+    assertThat(registerSameEmailAgain.getStatusCode().value())
+        .isEqualTo(registerNewEmail.getStatusCode().value());
+    assertThat(registerSameEmailAgain.getBody()).isEqualTo(registerNewEmail.getBody());
+    assertThat(registerSameEmailAgain.getStatusCode().value()).isEqualTo(202);
 
-    JsonNode body = objectMapper.readTree(firstAttempt.getBody());
+    JsonNode body = objectMapper.readTree(registerNewEmail.getBody());
     assertThat(body.has("id")).isFalse();
     assertThat(body.has("emailVerified")).isFalse();
     assertThat(body.has("createdAt")).isFalse();
 
-    // The second ("re-registration") attempt must not have taken over the account: the
-    // original password still works, and the second attempt's password does not.
+    // Separately (this is LOGIN, a different endpoint, not part of the comparison above): the
+    // second register call must not have taken over the account. The original password still
+    // logs in, and the password submitted on the duplicate register attempt does not — because
+    // it was never stored, not because login is somehow aware a duplicate registration happened.
     ResponseEntity<String> loginWithOriginalPassword =
         client.post(
             "/api/v1/auth/login",
@@ -87,11 +92,11 @@ class AuthFlowTest extends AbstractIntegrationTest {
     assertThat(loginWithOriginalPassword.getStatusCode().value()).isEqualTo(200);
     client.clearCookies();
 
-    ResponseEntity<String> loginWithSecondPassword =
+    ResponseEntity<String> loginWithUnstoredPassword =
         client.post(
             "/api/v1/auth/login",
             Map.of("email", "dup@example.com", "password", "another-password"));
-    assertThat(loginWithSecondPassword.getStatusCode().value()).isEqualTo(401);
+    assertThat(loginWithUnstoredPassword.getStatusCode().value()).isEqualTo(401);
   }
 
   @Test

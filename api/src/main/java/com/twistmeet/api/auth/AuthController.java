@@ -69,12 +69,19 @@ public class AuthController {
     }
 
     String email = request.email().trim().toLowerCase();
-    // Always hash the submitted password, whether or not the account already exists, so this
-    // endpoint's response time does not itself reveal which branch was taken. Review finding:
-    // registration previously returned 409 EMAIL_IN_USE for an existing email and 201 with the
-    // new account otherwise — two different statuses and bodies that let a caller enumerate
-    // which emails are already registered (12 SP04 "generic errors avoid account enumeration").
-    // Both branches below now produce the exact same status and body.
+    // Review finding: registration previously returned 409 EMAIL_IN_USE for an existing email
+    // and 201 with the new account otherwise — two different statuses and bodies that let a
+    // caller enumerate which emails are already registered (12 SP04 "generic errors avoid
+    // account enumeration"). Both branches below now produce the exact same status and body.
+    //
+    // This always hashes the submitted password regardless of which branch runs below, so an
+    // attacker can't distinguish the branches by the single cheapest tell (skipping bcrypt
+    // entirely on the existing-email path). It does NOT make the two branches equal-time: the
+    // new-account path also inserts two rows and calls MailService, so overall response time
+    // still differs and could in principle be used to infer existence. Closing that gap for
+    // real needs a constant-time design (e.g. always doing an equivalent amount of DB/mail work,
+    // or queuing the email send asynchronously so it can't affect the response at all) that is
+    // not implemented or measured here — do not describe this endpoint as constant-time.
     String passwordHash = passwordEncoder.encode(request.password());
     if (!userRepository.existsByEmail(email)) {
       User user = userRepository.save(new User(email, passwordHash, request.displayName()));

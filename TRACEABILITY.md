@@ -232,7 +232,7 @@ the real-time channel as a 63rd row at the end. This replaces the earlier underc
 
 | # | Method & route | Owning module | Authorization / role | Relevant data | Acceptance test / release evidence | M1 status |
 |---|---|---|---|---|---|---|
-| 1 | `POST /auth/register` | Auth | Public (becomes org owner on success); rate-limited 8/15min per client | `User` | Registration test; identical response whether or not the email is already registered (`AuthFlowTest.registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered`); rate-limit test (`AuthFlowTest.registrationIsRateLimited`) | **Built** — `AuthFlowTest` |
+| 1 | `POST /auth/register` | Auth | Public (becomes org owner on success); rate-limited 8/15min per client | `User` | Registration test; identical status and body whether or not the email is already registered (`AuthFlowTest.registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered`); rate-limit test (`AuthFlowTest.registrationIsRateLimited`). Not timing-equivalent and not claimed to be — see DECISIONS.md. A residual signal still exists if a caller registers then immediately logs in with the same password (succeeds only for a brand-new email); also noted in DECISIONS.md rather than hidden. | **Built** — `AuthFlowTest` |
 | 2 | `POST /auth/login` | Auth | Public (credentials) | `User` | Generic-error/rate-limit test (SP04) | **Built** — `AuthFlowTest` |
 | 3 | `POST /auth/logout` | Auth | Authenticated staff | `User` session | Session-revocation test | **Built** — `AuthFlowTest` |
 | 4 | `POST /auth/password/forgot` | Auth | Public (email) | `User` | Enumeration-resistant generic-response test | Not built (M1 scope is register/login/logout only; password reset deferred) |

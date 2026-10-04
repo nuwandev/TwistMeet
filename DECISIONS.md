@@ -168,11 +168,34 @@ Three findings from the M1 review, addressed on the same branch before starting 
    EMAIL_IN_USE` for an existing one — two distinguishable outcomes that let a caller enumerate
    registered emails (12 SP04 "generic errors avoid account enumeration"). Fixed: both cases now
    return the identical `202 Accepted` with a generic `{email, message}` body containing no
-   account fields (no `id`/`emailVerified`/`createdAt`), and the password is always hashed
-   (whether or not it's persisted) so the branch taken doesn't show up in response timing either.
-   A duplicate registration attempt also cannot take over the existing account — the original
-   password keeps working and the "new" password submitted on the duplicate attempt does not.
-   Tested in `AuthFlowTest.registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered`.
+   account fields (no `id`/`emailVerified`/`createdAt`). The password is always hashed regardless
+   of branch, which removes the single cheapest timing tell (skipping bcrypt entirely when the
+   email already exists) — **but this is not a constant-time guarantee.** The new-account branch
+   also inserts a `User` row, inserts an `EmailVerificationToken` row, and calls `MailService`,
+   so the two branches still take measurably different time overall; a caller timing many
+   requests precisely enough could in principle still infer existence. Closing that gap for real
+   would need an actual constant-time design (always doing equivalent DB/mail work either way, or
+   moving the email send off the request path) that has not been built or measured here — not
+   claimed as done. A duplicate registration attempt also cannot take over the existing account —
+   the original password keeps working and the "new" password submitted on the duplicate attempt
+   does not. Response status and body for both branches are compared directly in
+   `AuthFlowTest.registrationDoesNotRevealWhetherTheEmailIsAlreadyRegistered`; this status/body
+   equivalence is what is actually verified, not timing.
+
+   **Known residual signal (not fixed, documented instead of hidden):** registration never
+   overwrites an existing account's password — it must not, or a duplicate-registration call
+   would be an account-takeover vector. One consequence: if a caller registers with a guessed
+   password and then immediately logs in with that same password, login succeeds only when the
+   email was genuinely new (so that password is the one just stored) and fails with the ordinary
+   `INVALID_CREDENTIALS` wrong-password response otherwise. That second (login) call, not
+   registration, is where the distinguishable outcome appears, and it costs the caller a correct
+   guess plus two separate rate-limited requests per email probed — a much weaker channel than
+   the original single-call 409 vs 201, but a real one, not eliminated. Verified directly against
+   the running app (register → login, both call sites) with Playwright for three cases: a new
+   email, a duplicate with the same password, and a duplicate with a different password — in all
+   three, `POST /auth/register` itself returns the identical `202` and body; only the *subsequent*
+   `POST /auth/login` call's status differs (`200` vs `401`), and only because the password
+   genuinely does or doesn't match — the same way login behaves for any account.
 2. **No rate limiting on registration or email verification.** Both are now rate-limited by
    client address via the existing `SimpleRateLimiter` (same mechanism as login/join): 8
    registration attempts and 10 verification attempts per 15 minutes. `SimpleRateLimiter` gained
