@@ -73,6 +73,16 @@ public class Event {
   @Column(name = "created_at", nullable = false)
   private Instant createdAt = Instant.now();
 
+  // M5 publishing (08 `/events/{eventId}/publish`/`/unpublish`; 07 S13 "Hide by revoking
+  // token"). publishedAt null means hidden; unpublish rotates publicSlug rather than merely
+  // clearing publishedAt, so a previously shared link stops resolving immediately even if the
+  // event is later re-published under a new slug (see DECISIONS.md).
+  @Column(name = "published_at")
+  private Instant publishedAt;
+
+  @Column(name = "public_slug", unique = true)
+  private String publicSlug;
+
   @Version private long version;
 
   protected Event() {}
@@ -191,5 +201,26 @@ public class Event {
 
   public long getVersion() {
     return version;
+  }
+
+  public Instant getPublishedAt() {
+    return publishedAt;
+  }
+
+  public String getPublicSlug() {
+    return publicSlug;
+  }
+
+  public void publish(String slugIfAbsent) {
+    if (this.publicSlug == null) {
+      this.publicSlug = slugIfAbsent;
+    }
+    this.publishedAt = Instant.now();
+  }
+
+  /** Rotating the slug invalidates any previously shared public link immediately. */
+  public void unpublish(String newSlug) {
+    this.publishedAt = null;
+    this.publicSlug = newSlug;
   }
 }

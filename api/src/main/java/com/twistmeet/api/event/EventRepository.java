@@ -9,4 +9,8 @@ public interface EventRepository extends JpaRepository<Event, UUID> {
   List<Event> findByOrganizationId(UUID organizationId);
 
   Optional<Event> findByJoinCodeHash(String joinCodeHash);
+
+  Optional<Event> findByPublicSlug(String publicSlug);
+
+  boolean existsByPublicSlug(String publicSlug);
 }

@@ -83,6 +83,18 @@ public class EventController {
     return EventView.of(eventService.rotateJoinCode(eventId, userId), true);
   }
 
+  @PostMapping("/events/{eventId}/publish")
+  public EventView publish(@PathVariable UUID eventId) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return EventView.of(eventService.publish(eventId, userId), true);
+  }
+
+  @PostMapping("/events/{eventId}/unpublish")
+  public EventView unpublish(@PathVariable UUID eventId) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return EventView.of(eventService.unpublish(eventId, userId), true);
+  }
+
   @GetMapping("/events/{eventId}/my-role")
   public MyRoleView myRole(@PathVariable UUID eventId) {
     UUID userId = currentUserResolver.requireCurrentUserId();

@@ -44,6 +44,8 @@ public final class EventDtos {
       ScramblePolicy scramblePolicy,
       String joinCode,
       String rulesetSnapshot,
+      Instant publishedAt,
+      String publicSlug,
       Instant createdAt,
       long version) {
     public static EventView of(Event event, boolean includeJoinCode) {
@@ -62,6 +64,8 @@ public final class EventDtos {
           event.getScramblePolicy(),
           includeJoinCode ? event.getJoinCode() : null,
           event.getRulesetSnapshot(),
+          event.getPublishedAt(),
+          event.getPublicSlug(),
           event.getCreatedAt(),
           event.getVersion());
     }

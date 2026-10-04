@@ -124,6 +124,8 @@ export default function EventDetailPage() {
             <Link href={`/events/${eventId}/control`}>Tournament Control</Link>
           </>
         )}
+        {" "}
+        <Link href={`/organizations/${event.organizationId}/history`}>Event history</Link>
       </p>
       {!online && <OfflineState onRetry={load} />}
       {error && <ErrorState message={error} onRetry={load} />}
@@ -224,6 +226,31 @@ export default function EventDetailPage() {
         </form>
       </section>
 
+      <section className="card" style={{ marginBottom: "var(--space-3)" }}>
+        <h2>Publishing</h2>
+        <p>
+          <StatusBadge tone={event.publishedAt ? "good" : "neutral"}>
+            {event.publishedAt ? "Published" : "Not published"}
+          </StatusBadge>
+        </p>
+        {event.publishedAt && event.publicSlug && typeof window !== "undefined" && (
+          <p>
+            Public link:{" "}
+            <a href={`${window.location.origin}/public/${event.publicSlug}`}>
+              {`${window.location.origin}/public/${event.publicSlug}`}
+            </a>
+          </p>
+        )}
+        <div style={{ display: "flex", gap: "var(--space-1)" }}>
+          <button className="button-primary" disabled={busy} onClick={() => runAction(`/api/v1/events/${eventId}/publish`)}>
+            Publish
+          </button>
+          <button disabled={busy} onClick={() => runAction(`/api/v1/events/${eventId}/unpublish`)}>
+            Unpublish (hide / revoke link)
+          </button>
+        </div>
+      </section>
+
       <section className="card">
         <h2>Rounds</h2>
         {rounds && rounds.length > 0 ? (
@@ -264,12 +291,18 @@ export default function EventDetailPage() {
                     <>
                       <Link href={`/rounds/${round.id}/standings`}>Standings</Link>
                       <Link href={`/events/${eventId}/corrections`}>Correction queue</Link>
+                      <Link href={`/rounds/${round.id}/advancement`}>Advancement</Link>
                       <button disabled={busy} onClick={() => runAction(`/api/v1/rounds/${round.id}/close`)}>
                         Close round
                       </button>
                     </>
                   )}
-                  {round.state === "CLOSED" && <Link href={`/rounds/${round.id}/standings`}>Final standings</Link>}
+                  {round.state === "CLOSED" && (
+                    <>
+                      <Link href={`/rounds/${round.id}/standings`}>Final standings</Link>
+                      <Link href={`/rounds/${round.id}/advancement`}>Advancement</Link>
+                    </>
+                  )}
                 </div>
               </li>
             ))}

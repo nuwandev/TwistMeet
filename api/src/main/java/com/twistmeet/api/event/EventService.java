@@ -152,6 +152,55 @@ public class EventService {
         "REGISTRATION_REOPENED");
   }
 
+  /**
+   * Publish/unpublish are intentionally not gated on {@link EventState}: that state machine barely
+   * advances past {@code REGISTRATION_LOCKED} in practice (rounds/attempts drive the
+   * actually-useful progress — see {@link RoundState}), so gating on it would make publish
+   * unreachable for a normal event. Any organizer, at any event state, may publish or unpublish;
+   * what the public page actually shows is separately gated per-round (see PublicStandingsService).
+   */
+  @Transactional
+  public Event publish(UUID eventId, UUID actorUserId) {
+    Event event = findOrNotFound(eventId);
+    tenantAccessService.requireOrganizer(event, actorUserId);
+    event.publish(event.getPublicSlug() == null ? newUniqueSlug() : null);
+    event = eventRepository.save(event);
+    auditService.recordStaffAction(
+        event.getOrganizationId(),
+        event.getId(),
+        actorUserId,
+        "EVENT_PUBLISHED",
+        "Event",
+        event.getId().toString(),
+        null);
+    return event;
+  }
+
+  @Transactional
+  public Event unpublish(UUID eventId, UUID actorUserId) {
+    Event event = findOrNotFound(eventId);
+    tenantAccessService.requireOrganizer(event, actorUserId);
+    event.unpublish(newUniqueSlug());
+    event = eventRepository.save(event);
+    auditService.recordStaffAction(
+        event.getOrganizationId(),
+        event.getId(),
+        actorUserId,
+        "EVENT_UNPUBLISHED",
+        "Event",
+        event.getId().toString(),
+        null);
+    return event;
+  }
+
+  private String newUniqueSlug() {
+    String slug;
+    do {
+      slug = SecretTokens.newOpaqueToken().replaceAll("[^A-Za-z0-9]", "").substring(0, 16);
+    } while (eventRepository.existsByPublicSlug(slug));
+    return slug;
+  }
+
   @Transactional
   public Event rotateJoinCode(UUID eventId, UUID actorUserId) {
     Event event = findOrNotFound(eventId);
