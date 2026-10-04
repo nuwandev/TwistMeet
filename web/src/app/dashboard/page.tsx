@@ -82,6 +82,7 @@ export default function DashboardPage() {
           timezone: form.get("timezone"),
           venueLabel: form.get("venueLabel"),
           visibility: "PRIVATE",
+          timerMode: form.get("timerMode"),
         },
       });
       formEl.reset();
@@ -147,6 +148,10 @@ export default function DashboardPage() {
             <input className="field-input" name="startsAt" type="datetime-local" required />
             <input className="field-input" name="timezone" placeholder="America/Los_Angeles" required defaultValue="America/Los_Angeles" />
             <input className="field-input" name="venueLabel" placeholder="Venue (optional)" />
+            <select className="field-input" name="timerMode" defaultValue="PHYSICAL_JUDGE">
+              <option value="PHYSICAL_JUDGE">Judge recorded · physical timer</option>
+              <option value="PHONE_CASUAL">Self-timed · device/browser timing</option>
+            </select>
             <button className="button-primary" type="submit">Create draft event</button>
           </form>
         </section>

@@ -44,6 +44,7 @@ export type EventView = {
   timerMode: "PHYSICAL_JUDGE" | "PHONE_CASUAL";
   scramblePolicy: "STAFF_PREPARED" | "SELF_SCRAMBLE";
   joinCode: string | null;
+  rulesetSnapshot: string | null;
   createdAt: string;
   version: number;
 };
@@ -52,11 +53,111 @@ export type EntrantView = {
   id: string;
   displayName: string;
   status: "ACTIVE" | "WITHDRAWN";
+  checkInState: "NOT_CHECKED_IN" | "CHECKED_IN";
   joinedAt: string;
+  version: number;
 };
 
 export type JoinResponse = {
   eventId: string;
   eventName: string;
   entrant: EntrantView;
+};
+
+export type RoundFormat = "BO1" | "BO2" | "BO3" | "MO3" | "AO5";
+export type RoundState = "DRAFT" | "PREPARING" | "READY" | "LIVE" | "REVIEW" | "CLOSED";
+export type AdvancementRule = "EVERYONE" | "TOP_N" | "TOP_PERCENT";
+
+export type RoundView = {
+  id: string;
+  eventId: string;
+  order: number;
+  name: string;
+  format: RoundFormat;
+  attemptCount: number;
+  advancementRule: AdvancementRule;
+  advancementValue: number | null;
+  tiePolicy: "SHARED_RANK" | "TIE_BREAK_ATTEMPT";
+  state: RoundState;
+  paused: boolean;
+  rulesetVersion: string;
+  createdAt: string;
+  version: number;
+};
+
+export type ResultSource = "JUDGE" | "SELF_TIMED";
+export type AttemptState =
+  | "PENDING"
+  | "RUNNING"
+  | "STOPPED"
+  | "SUBMITTED"
+  | "ACCEPTED"
+  | "VOIDED";
+export type ResultStatus = "PENDING" | "OK" | "DNF" | "DNS" | "VOID";
+export type Penalty = "NONE" | "PLUS_TWO";
+
+export type AttemptView = {
+  id: string;
+  eventId: string;
+  roundId: string;
+  entrantId: string;
+  attemptNumber: number;
+  resultSource: ResultSource;
+  state: AttemptState;
+  rawTimeMs: number | null;
+  penalty: Penalty;
+  adjustedTimeMs: number | null;
+  resultStatus: ResultStatus;
+  startedAt: string | null;
+  stoppedAt: string | null;
+  submittedAt: string | null;
+  version: number;
+};
+
+export type ResultRevisionView = {
+  id: string;
+  previousRawTimeMs: number | null;
+  previousPenalty: Penalty | null;
+  previousResultStatus: ResultStatus | null;
+  newRawTimeMs: number | null;
+  newPenalty: Penalty;
+  newResultStatus: ResultStatus;
+  note: string | null;
+  createdAt: string;
+};
+
+export type CorrectionCategory = "TIMER_OR_ENTRY_ISSUE" | "SCRAMBLE_CONCERN" | "INTERRUPTION" | "OTHER";
+export type CorrectionState = "PENDING" | "DECIDED";
+export type CorrectionDecision = "ACCEPT_NO_RETRY" | "ACCEPT_RETRY" | "REJECT" | "NEED_INFO";
+
+export type CorrectionView = {
+  id: string;
+  attemptId: string;
+  requestedBy: string;
+  category: CorrectionCategory;
+  note: string | null;
+  state: CorrectionState;
+  decision: CorrectionDecision | null;
+  decidedBy: string | null;
+  decisionReason: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  version: number;
+};
+
+export type EntrantStanding = {
+  entrantId: string;
+  displayName: string;
+  rank: number;
+  outcome: "OK" | "DNF" | "NO_RESULT";
+  displayMs: number | null;
+  bestValidSingleMs: number | null;
+  discardedAttemptNumbers: number[];
+};
+
+export type StandingsView = {
+  roundId: string;
+  provisional: boolean;
+  rulesetVersion: string;
+  standings: EntrantStanding[];
 };
