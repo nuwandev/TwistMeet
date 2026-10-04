@@ -11,6 +11,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Boots the real application against a real PostgreSQL database (see
@@ -36,6 +39,7 @@ public abstract class AbstractIntegrationTest {
   @Autowired protected CapturingMailService capturingMailService;
 
   protected TestApiClient client;
+  protected final ObjectMapper objectMapper = JsonMapper.builder().build();
 
   @BeforeEach
   void resetDatabaseAndClient() {
@@ -65,5 +69,63 @@ public abstract class AbstractIntegrationTest {
     }
     return apiClient.post(
         "/api/v1/auth/email/verify", Map.of("token", token, "password", password));
+  }
+
+  protected JsonNode json(ResponseEntity<String> response) {
+    return objectMapper.readTree(response.getBody());
+  }
+
+  /** Registers+verifies a fresh staff user, then creates an organization; returns the org id. */
+  protected String registerVerifyAndCreateOrg(
+      TestApiClient apiClient, String email, String displayName, String orgName) {
+    registerAndVerify(apiClient, email, displayName, "correct-horse-battery");
+    ResponseEntity<String> orgResponse =
+        apiClient.post(
+            "/api/v1/organizations",
+            Map.of("name", orgName, "defaultTimezone", "America/Los_Angeles"));
+    return json(orgResponse).get("id").asText();
+  }
+
+  /** Creates a draft event under the given org with the given timer mode; returns its id. */
+  protected String createEvent(
+      TestApiClient apiClient, String orgId, String name, String timerMode) {
+    ResponseEntity<String> created =
+        apiClient.post(
+            "/api/v1/organizations/" + orgId + "/events",
+            Map.of(
+                "name", name,
+                "description", "",
+                "startsAt", "2027-01-01T00:00:00Z",
+                "timezone", "America/Los_Angeles",
+                "venueLabel", "Test venue",
+                "timerMode", timerMode));
+    return json(created).get("id").asText();
+  }
+
+  protected String openRegistration(TestApiClient apiClient, String eventId) {
+    ResponseEntity<String> response =
+        apiClient.post("/api/v1/events/" + eventId + "/registration/open", null);
+    return json(response).get("joinCode").asText();
+  }
+
+  protected String joinAsGuest(TestApiClient guestClient, String joinCode, String displayName) {
+    ResponseEntity<String> response =
+        guestClient.post("/api/v1/join/" + joinCode, Map.of("displayName", displayName));
+    return json(response).get("entrant").get("id").asText();
+  }
+
+  protected String createRound(
+      TestApiClient apiClient, String eventId, int order, String name, String format) {
+    ResponseEntity<String> response =
+        apiClient.post(
+            "/api/v1/events/" + eventId + "/rounds",
+            Map.of("order", order, "name", name, "format", format));
+    return json(response).get("id").asText();
+  }
+
+  protected void prepareReadyStart(TestApiClient apiClient, String roundId) {
+    apiClient.post("/api/v1/rounds/" + roundId + "/prepare", null);
+    apiClient.post("/api/v1/rounds/" + roundId + "/ready", null);
+    apiClient.post("/api/v1/rounds/" + roundId + "/start", null);
   }
 }

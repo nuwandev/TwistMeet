@@ -81,6 +81,12 @@ public class SecurityConfig {
                         "/api/v1/join/**",
                         "/api/v1/guest/**",
                         "/api/v1/public/**",
+                        // Competitor-facing attempt controls (start/stop/submit, own-attempt GET,
+                        // correction requests) ride the guest cookie, not a Spring Security
+                        // session — same rationale as /guest/** above. The staff-only operations
+                        // at these same paths (judge-result, revisions) still require a staff
+                        // principal via CurrentUserResolver inside the controller.
+                        "/api/v1/attempts/**",
                         "/actuator/health")
                     .permitAll()
                     .anyRequest()

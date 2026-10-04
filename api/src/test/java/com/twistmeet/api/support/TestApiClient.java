@@ -42,6 +42,14 @@ public class TestApiClient {
     return exchange(HttpMethod.PATCH, path, body);
   }
 
+  public ResponseEntity<String> put(String path, Object body) {
+    return exchange(HttpMethod.PUT, path, body);
+  }
+
+  public ResponseEntity<String> delete(String path) {
+    return exchange(HttpMethod.DELETE, path, null);
+  }
+
   public ResponseEntity<String> exchange(HttpMethod method, String path, Object body) {
     // A GET first ensures a CSRF cookie exists before any mutating call needs to echo it.
     if (method != HttpMethod.GET && !cookieJar.containsKey("XSRF-TOKEN")) {
