@@ -83,4 +83,32 @@ public class TenantAccessService {
       throw ApiException.notFound("Event not found");
     }
   }
+
+  /**
+   * Resolves which staff role the caller holds for this event (00 §5/§9: "Display role and event
+   * scope visibly on staff pages" — the UI's {@code RoleBanner} needs this, and a judge who is not
+   * an organization member cannot otherwise discover their own role, since every other
+   * organizer-scoped read 404s for them). 404 for a caller with no relationship to the event at
+   * all, matching every other anti-enumeration check in this class.
+   */
+  public ResolvedStaffRole resolveStaffRole(Event event, UUID userId) {
+    var membership =
+        membershipRepository.findByOrganizationIdAndUserId(event.getOrganizationId(), userId);
+    if (membership.isPresent()) {
+      return membership.get().getRole() == OrgRole.OWNER
+          ? ResolvedStaffRole.OWNER
+          : ResolvedStaffRole.ORGANIZER;
+    }
+    if (eventStaffAssignmentRepository.existsByEventIdAndUserIdAndRole(
+        event.getId(), userId, EventRole.JUDGE)) {
+      return ResolvedStaffRole.JUDGE;
+    }
+    throw ApiException.notFound("Event not found");
+  }
+
+  public enum ResolvedStaffRole {
+    OWNER,
+    ORGANIZER,
+    JUDGE
+  }
 }

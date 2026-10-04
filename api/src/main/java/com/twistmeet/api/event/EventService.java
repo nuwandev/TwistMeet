@@ -191,6 +191,16 @@ public class EventService {
     return event;
   }
 
+  /**
+   * Resolves the caller's staff role for this event, for {@code RoleBanner} (00 §5/§9) — unlike
+   * {@link #getForStaff}, this succeeds for a judge who holds no organization membership at all,
+   * since {@link TenantAccessService#resolveStaffRole} checks judge assignment as a fallback.
+   */
+  public TenantAccessService.ResolvedStaffRole getMyRole(UUID eventId, UUID actorUserId) {
+    Event event = findOrNotFound(eventId);
+    return tenantAccessService.resolveStaffRole(event, actorUserId);
+  }
+
   private Event findOrNotFound(UUID eventId) {
     return eventRepository
         .findById(eventId)

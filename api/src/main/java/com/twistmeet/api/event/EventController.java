@@ -3,6 +3,7 @@ package com.twistmeet.api.event;
 import com.twistmeet.api.auth.CurrentUserResolver;
 import com.twistmeet.api.event.EventDtos.CreateEventRequest;
 import com.twistmeet.api.event.EventDtos.EventView;
+import com.twistmeet.api.event.EventDtos.MyRoleView;
 import com.twistmeet.api.event.EventDtos.UpdateEventRequest;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -80,5 +81,11 @@ public class EventController {
   public EventView rotateJoinCode(@PathVariable UUID eventId) {
     UUID userId = currentUserResolver.requireCurrentUserId();
     return EventView.of(eventService.rotateJoinCode(eventId, userId), true);
+  }
+
+  @GetMapping("/events/{eventId}/my-role")
+  public MyRoleView myRole(@PathVariable UUID eventId) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return new MyRoleView(eventService.getMyRole(eventId, userId).name());
   }
 }

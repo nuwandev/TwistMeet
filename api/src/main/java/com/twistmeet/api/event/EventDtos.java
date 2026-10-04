@@ -20,6 +20,9 @@ public final class EventDtos {
       TimerMode timerMode,
       ScramblePolicy scramblePolicy) {}
 
+  /** Backs {@code RoleBanner} (07): the caller's resolved staff role for one event. */
+  public record MyRoleView(String role) {}
+
   public record UpdateEventRequest(
       @NotBlank @Size(min = 3, max = 80) String name,
       @Size(max = 2000) String description,
