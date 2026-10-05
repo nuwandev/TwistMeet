@@ -54,6 +54,18 @@ export default function AdvancementPage() {
     }
   }
 
+  async function createTieBreak() {
+    setBusy(true);
+    try {
+      await apiFetch(`/api/v1/rounds/${roundId}/advancement/tie-break`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not create the tie-break attempt");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function currentVersion(): Promise<number> {
     const round = await apiFetch<{ version: number }>(`/api/v1/rounds/${roundId}`);
     return round.version;
@@ -92,6 +104,21 @@ export default function AdvancementPage() {
       {preview.alreadyCommitted && <StatusBadge tone="good">Already committed</StatusBadge>}
       {!preview.nextRoundId && (
         <p className="error-text">Create the next round before committing advancement.</p>
+      )}
+
+      {preview.tieBreakRequired && (
+        <div className="card">
+          <p>
+            Tied for the boundary rank:{" "}
+            {preview.tiedPendingResolution.map((a) => a.displayName).join(", ")}
+          </p>
+          <button disabled={busy} onClick={createTieBreak}>
+            Create tie-break attempt
+          </button>
+          <p className="status-badge">
+            After the tie-break attempt is judged, reload this page before committing.
+          </p>
+        </div>
       )}
 
       {preview.advancing.length === 0 ? (

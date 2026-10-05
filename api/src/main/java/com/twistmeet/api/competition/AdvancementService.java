@@ -35,9 +35,15 @@ import org.springframework.transaction.annotation.Transactional;
  * RankingService}, {@link AdvancementCalculator}) exactly as {@link StandingsService} does —
  * nothing here re-implements ranking or tie math.
  *
- * <p>Deferred by explicit decision (DECISIONS.md): the optional organizer-selected tie-break
- * *attempt* (09: "If organizer selected a tie-break attempt...") is not implemented — ties at the
- * boundary rank always advance together, which 09 itself names as the default behavior.
+ * <p>09: "If organizer selected a tie-break attempt, show the tied names and create a special
+ * one-attempt attempt with an unused scramble; winner policy is the lower valid time, DNF last,
+ * then shared advancement if still tied. This option must be selected before registration opens."
+ * Implemented via {@link #createTieBreakAttempts}: a boundary tie under {@link
+ * TiePolicy#TIE_BREAK_ATTEMPT} withholds the tied entrants from {@code advancing} (flagging {@code
+ * tieBreakRequired}) until that endpoint creates one extra judged attempt per tied entrant; once
+ * all of those are resolved, {@link #computePreview} picks the winner(s) by lower valid time (DNF
+ * ranked last; identical times or all-DNF falls back to shared advancement, exactly as specified).
+ * The default ({@link TiePolicy#SHARED_RANK}) is unchanged: boundary ties always advance together.
  */
 @Service
 public class AdvancementService {
@@ -49,6 +55,7 @@ public class AdvancementService {
   private final RoundQualifiedEntrantRepository qualifiedEntrantRepository;
   private final TenantAccessService tenantAccessService;
   private final AuditService auditService;
+  private final com.twistmeet.api.scramble.ScrambleService scrambleService;
 
   public AdvancementService(
       RoundRepository roundRepository,
@@ -57,7 +64,8 @@ public class AdvancementService {
       EventEntrantRepository entrantRepository,
       RoundQualifiedEntrantRepository qualifiedEntrantRepository,
       TenantAccessService tenantAccessService,
-      AuditService auditService) {
+      AuditService auditService,
+      com.twistmeet.api.scramble.ScrambleService scrambleService) {
     this.roundRepository = roundRepository;
     this.eventRepository = eventRepository;
     this.attemptRepository = attemptRepository;
@@ -65,6 +73,59 @@ public class AdvancementService {
     this.qualifiedEntrantRepository = qualifiedEntrantRepository;
     this.tenantAccessService = tenantAccessService;
     this.auditService = auditService;
+    this.scrambleService = scrambleService;
+  }
+
+  /**
+   * Creates one extra, judged attempt (attempt number = format count + 1) for every entrant
+   * currently tied at the advancement boundary rank, assigning an unused scramble if a batch exists
+   * for this round. Idempotent per entrant: re-calling before any result is recorded is a no-op for
+   * entrants who already have one.
+   */
+  @Transactional
+  public List<AdvancedEntrant> createTieBreakAttempts(UUID roundId, UUID actorUserId) {
+    Round round = findRoundOrNotFound(roundId);
+    Event event = findEventOrNotFound(round.getEventId());
+    tenantAccessService.requireOrganizer(event, actorUserId);
+    if (round.getTiePolicy() != TiePolicy.TIE_BREAK_ATTEMPT) {
+      throw ApiException.invalidTransition(
+          "This round was not configured with the tie-break-attempt option");
+    }
+    AdvancementPreviewView preview = computePreview(round, event);
+    if (preview.tiedPendingResolution().isEmpty()) {
+      throw ApiException.invalidTransition("No boundary tie is currently pending resolution");
+    }
+    int tieBreakAttemptNumber = tieBreakAttemptNumber(round);
+    for (AdvancedEntrant tied : preview.tiedPendingResolution()) {
+      boolean exists =
+          attemptRepository.findByRoundIdAndEntrantId(roundId, tied.entrantId()).stream()
+              .anyMatch(a -> a.getAttemptNumber() == tieBreakAttemptNumber);
+      if (exists) {
+        continue;
+      }
+      com.twistmeet.api.competition.ResultSource resultSource =
+          event.getTimerMode() == com.twistmeet.api.event.TimerMode.PHYSICAL_JUDGE
+              ? ResultSource.JUDGE
+              : ResultSource.SELF_TIMED;
+      Attempt tieBreakAttempt =
+          attemptRepository.save(
+              new Attempt(
+                  event.getId(), roundId, tied.entrantId(), tieBreakAttemptNumber, resultSource));
+      scrambleService.assignScrambleIfBatchExists(tieBreakAttempt);
+    }
+    auditService.recordStaffAction(
+        event.getOrganizationId(),
+        event.getId(),
+        actorUserId,
+        "TIE_BREAK_ATTEMPTS_CREATED",
+        "Round",
+        roundId.toString(),
+        "tie-break among " + preview.tiedPendingResolution().size() + " entrant(s)");
+    return preview.tiedPendingResolution();
+  }
+
+  private int tieBreakAttemptNumber(Round round) {
+    return round.getFormat().attemptCount() + 1;
   }
 
   public AdvancementPreviewView preview(UUID roundId, UUID actorUserId) {
@@ -92,6 +153,11 @@ public class AdvancementService {
     }
 
     AdvancementPreviewView preview = computePreview(round, event);
+    if (preview.tieBreakRequired()) {
+      throw ApiException.invalidTransition(
+          "A tie-break attempt must be created and resolved before committing (see"
+              + " /advancement/tie-break)");
+    }
     Round nextRound = requireNextRoundDraft(event.getId(), round);
 
     // Claim the commit via the round's own optimistic lock BEFORE writing any roster rows: the
@@ -139,14 +205,22 @@ public class AdvancementService {
     Map<UUID, EventEntrant> entrantsById =
         entrantRepository.findByEventId(event.getId()).stream()
             .collect(Collectors.toMap(EventEntrant::getId, e -> e));
+    // A tie-break attempt (attemptNumber beyond the round's own format count) must never be fed
+    // into the main scoring/ranking — it would silently replace or augment an entrant's real
+    // result. byEntrant (unfiltered) is kept separately below, purely for tie-break lookup.
     Map<UUID, List<Attempt>> byEntrant =
         attempts.stream().collect(Collectors.groupingBy(Attempt::getEntrantId));
+    int formatAttemptCount = round.getFormat().attemptCount();
+    Map<UUID, List<Attempt>> mainAttemptsByEntrant =
+        attempts.stream()
+            .filter(a -> a.getAttemptNumber() <= formatAttemptCount)
+            .collect(Collectors.groupingBy(Attempt::getEntrantId));
 
     // 09 eligibility: "not withdrawn and has at least one result status." Withdrawn entrants are
     // filtered here; an entrant with zero resolved attempts naturally scores RoundOutcome.
     // NO_RESULT, which RankingService.rank already excludes from the ranked list below.
     List<Scored<UUID>> scored =
-        byEntrant.entrySet().stream()
+        mainAttemptsByEntrant.entrySet().stream()
             .filter(
                 e -> {
                   EventEntrant entrant = entrantsById.get(e.getKey());
@@ -179,7 +253,7 @@ public class AdvancementService {
       }
     }
 
-    List<AdvancedEntrant> advancing =
+    List<AdvancedEntrant> naiveAdvancing =
         ranked.stream()
             .filter(r -> advancingIds.contains(r.id()))
             .map(
@@ -189,7 +263,83 @@ public class AdvancementService {
             .sorted((a, b) -> Integer.compare(a.rank(), b.rank()))
             .toList();
 
-    String tieNote = buildTieNote(ranked, advancing.size(), targetCount);
+    List<AdvancedEntrant> advancing = naiveAdvancing;
+    List<AdvancedEntrant> tiedPendingResolution = List.of();
+    boolean tieBreakRequired = false;
+
+    boolean boundaryTie = rule != AdvancementRule.EVERYONE && naiveAdvancing.size() > targetCount;
+    if (boundaryTie && round.getTiePolicy() == TiePolicy.TIE_BREAK_ATTEMPT) {
+      int boundaryRank = naiveAdvancing.stream().mapToInt(AdvancedEntrant::rank).max().orElse(0);
+      List<AdvancedEntrant> tied =
+          naiveAdvancing.stream().filter(a -> a.rank() == boundaryRank).toList();
+      List<AdvancedEntrant> aboveBoundary =
+          naiveAdvancing.stream().filter(a -> a.rank() < boundaryRank).toList();
+      int tieBreakAttemptNumber = tieBreakAttemptNumber(round);
+
+      Map<UUID, Attempt> tieBreakAttemptsByEntrant =
+          tied.stream()
+              .map(
+                  a ->
+                      byEntrant.getOrDefault(a.entrantId(), List.of()).stream()
+                          .filter(att -> att.getAttemptNumber() == tieBreakAttemptNumber)
+                          .findFirst()
+                          .map(att -> Map.entry(a.entrantId(), att)))
+              .filter(java.util.Optional::isPresent)
+              .map(java.util.Optional::get)
+              .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+      boolean allTieBreaksResolved =
+          tied.size() == tieBreakAttemptsByEntrant.size()
+              && tieBreakAttemptsByEntrant.values().stream()
+                  .allMatch(att -> att.getResultStatus() != ResultStatus.PENDING);
+
+      if (!allTieBreaksResolved) {
+        tieBreakRequired = true;
+        tiedPendingResolution = tied;
+        advancing = aboveBoundary;
+      } else {
+        // Winner policy: lower valid (OK) time wins; DNF/DNS rank last; identical times (or
+        // every tied entrant being DNF/DNS, i.e. nobody has a comparable valid time) falls back
+        // to shared advancement — exactly 09's "then shared advancement if still tied."
+        Long bestTime = null;
+        for (Attempt att : tieBreakAttemptsByEntrant.values()) {
+          if (att.getResultStatus() == ResultStatus.OK && att.getAdjustedTimeMs() != null) {
+            bestTime =
+                bestTime == null
+                    ? att.getAdjustedTimeMs()
+                    : Math.min(bestTime, att.getAdjustedTimeMs());
+          }
+        }
+        List<AdvancedEntrant> winners;
+        if (bestTime == null) {
+          winners = tied; // nobody posted a valid time -> shared advancement
+        } else {
+          Long finalBestTime = bestTime;
+          winners =
+              tied.stream()
+                  .filter(
+                      a -> {
+                        Attempt att = tieBreakAttemptsByEntrant.get(a.entrantId());
+                        return att.getResultStatus() == ResultStatus.OK
+                            && finalBestTime.equals(att.getAdjustedTimeMs());
+                      })
+                  .toList();
+        }
+        advancing =
+            java.util.stream.Stream.concat(aboveBoundary.stream(), winners.stream())
+                .sorted((a, b) -> Integer.compare(a.rank(), b.rank()))
+                .toList();
+      }
+    }
+
+    String tieNote =
+        tieBreakRequired
+            ? "Rank "
+                + tiedPendingResolution.get(0).rank()
+                + " is tied among "
+                + tiedPendingResolution.size()
+                + " entrant(s); a tie-break attempt is required before committing."
+            : buildTieNote(ranked, naiveAdvancing.size(), targetCount);
     Round nextRound = findNextRound(event.getId(), round.getOrder()).orElse(null);
 
     return new AdvancementPreviewView(
@@ -201,7 +351,9 @@ public class AdvancementService {
         targetCount,
         advancing,
         tieNote,
-        round.getAdvancementCommittedAt() != null);
+        round.getAdvancementCommittedAt() != null,
+        tieBreakRequired,
+        tiedPendingResolution);
   }
 
   private String buildTieNote(List<RankedEntry<UUID>> ranked, int advancingCount, int targetCount) {

@@ -74,6 +74,7 @@ public class RoundService {
           "Rounds can only be configured before the event is READY/LIVE");
     }
     validateAdvancement(request.advancementRule(), request.advancementValue(), null);
+    validateTiePolicy(event, request.tiePolicy());
     if (roundRepository.existsByEventIdAndOrder(eventId, request.order())) {
       throw ApiException.badRequest("ROUND_ORDER_TAKEN", "A round with that order already exists");
     }
@@ -108,6 +109,7 @@ public class RoundService {
       throw ApiException.invalidTransition("Round can only be edited while DRAFT");
     }
     validateAdvancement(request.advancementRule(), request.advancementValue(), null);
+    validateTiePolicy(event, request.tiePolicy());
     round.applyDraftEdits(
         request.name(),
         request.format(),
@@ -331,6 +333,20 @@ public class RoundService {
     if (round.getState() != expected) {
       throw ApiException.invalidTransition(
           "Cannot move round from " + round.getState() + " to " + target);
+    }
+  }
+
+  /**
+   * 09: "This option must be selected before registration opens" — the tie-break-attempt policy may
+   * only be set while the event is still DRAFT (round update is already restricted to DRAFT rounds;
+   * this additionally restricts to DRAFT *events*, since registration-open is an event- level
+   * state, not a round-level one).
+   */
+  private void validateTiePolicy(Event event, TiePolicy tiePolicy) {
+    if (tiePolicy == TiePolicy.TIE_BREAK_ATTEMPT && event.getState() != EventState.DRAFT) {
+      throw ApiException.badRequest(
+          "TIE_POLICY_INVALID",
+          "The tie-break-attempt option must be selected before registration opens");
     }
   }
 

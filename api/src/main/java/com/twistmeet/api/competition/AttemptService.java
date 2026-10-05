@@ -147,7 +147,14 @@ public class AttemptService {
     if (attempt.getState() == AttemptState.VOIDED) {
       throw ApiException.invalidTransition("Attempt was voided by an accepted correction");
     }
-    requireRoundNotClosed(attempt.getRoundId());
+    // A tie-break attempt (09) is deliberately created and judged *after* the round's regular
+    // attempts are done — by the time advancement preview surfaces a boundary tie, the round is
+    // typically already REVIEW or CLOSED. Its attempt number is always beyond the round's own
+    // format count, so it's unambiguous which attempts this exception applies to; every regular
+    // attempt is still fully protected by the closed-round check.
+    if (attempt.getAttemptNumber() <= roundFormatAttemptCount(attempt.getRoundId())) {
+      requireRoundNotClosed(attempt.getRoundId());
+    }
 
     if (attempt.getVersion() != body.expectedVersion()) {
       throw ApiException.conflict("STALE_VERSION", "Attempt has been modified since you loaded it");
@@ -284,6 +291,13 @@ public class AttemptService {
     if (round.isPaused()) {
       throw ApiException.conflict("ROUND_PAUSED", "The organizer has paused new attempt starts");
     }
+  }
+
+  private int roundFormatAttemptCount(UUID roundId) {
+    return roundRepository
+        .findById(roundId)
+        .map(r -> r.getFormat().attemptCount())
+        .orElse(Integer.MAX_VALUE);
   }
 
   private void requireRoundNotClosed(UUID roundId) {

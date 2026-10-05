@@ -219,6 +219,8 @@ export type AdvancementPreviewView = {
   advancing: AdvancedEntrant[];
   tieNote: string;
   alreadyCommitted: boolean;
+  tieBreakRequired: boolean;
+  tiedPendingResolution: AdvancedEntrant[];
 };
 
 export type AdvancementCommitView = {

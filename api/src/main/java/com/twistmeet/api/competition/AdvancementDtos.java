@@ -23,7 +23,9 @@ public final class AdvancementDtos {
       int targetCount,
       List<AdvancedEntrant> advancing,
       String tieNote,
-      boolean alreadyCommitted) {}
+      boolean alreadyCommitted,
+      boolean tieBreakRequired,
+      List<AdvancedEntrant> tiedPendingResolution) {}
 
   public record CommitRequest(@NotNull Long expectedVersion) {}
 
