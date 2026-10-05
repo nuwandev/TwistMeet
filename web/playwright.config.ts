@@ -11,8 +11,11 @@ export default defineConfig({
     baseURL: "http://localhost:3000",
     actionTimeout: 30_000,
     trace: "retain-on-failure",
-    launchOptions: {
-      executablePath: "/opt/pw-browsers/chromium",
-    },
+    // Only set when the environment pre-installs Chromium at a fixed path outside Playwright's
+    // own cache (e.g. this sandbox). Unset (CI, most local setups) lets Playwright find the
+    // browser it installed itself via `npx playwright install chromium`.
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+      : {},
   },
 });
