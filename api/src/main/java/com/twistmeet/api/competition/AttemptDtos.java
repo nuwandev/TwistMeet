@@ -74,8 +74,19 @@ public final class AttemptDtos {
     }
   }
 
+  /**
+   * 07 S12 "Revisions list actor, time, reason and before/after values." {@code actorUserId}/
+   * {@code actorDisplayName} and the attempt/entrant identification were added for S12 (the entity
+   * always had {@code actorUserId}; the view never exposed it before this).
+   */
   public record ResultRevisionView(
       UUID id,
+      UUID attemptId,
+      int attemptNumber,
+      UUID entrantId,
+      String entrantDisplayName,
+      UUID actorUserId,
+      String actorDisplayName,
       Long previousRawTimeMs,
       Penalty previousPenalty,
       ResultStatus previousResultStatus,
@@ -84,9 +95,19 @@ public final class AttemptDtos {
       ResultStatus newResultStatus,
       String note,
       Instant createdAt) {
-    public static ResultRevisionView of(ResultRevision revision) {
+    public static ResultRevisionView of(
+        ResultRevision revision,
+        Attempt attempt,
+        String entrantDisplayName,
+        String actorDisplayName) {
       return new ResultRevisionView(
           revision.getId(),
+          attempt.getId(),
+          attempt.getAttemptNumber(),
+          attempt.getEntrantId(),
+          entrantDisplayName,
+          revision.getActorUserId(),
+          actorDisplayName,
           revision.getPreviousRawTimeMs(),
           revision.getPreviousPenalty(),
           revision.getPreviousResultStatus(),

@@ -289,28 +289,13 @@ export default function EventDetailPage() {
             </a>
           </p>
         )}
-        <div style={{ display: "flex", gap: "var(--space-1)" }}>
-          <button className="button-primary" disabled={busy} onClick={() => runAction(`/api/v1/events/${eventId}/publish`)}>
-            Publish
-          </button>
-          <button disabled={busy} onClick={() => runAction(`/api/v1/events/${eventId}/unpublish`)}>
-            Unpublish (hide / revoke link)
-          </button>
-        </div>
-        {/* 07 S12 "Public name masking option" */}
-        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", marginTop: "var(--space-2)" }}>
-          <input
-            type="checkbox"
-            checked={event.publicNameMask}
-            disabled={busy}
-            onChange={(e) =>
-              runAction(`/api/v1/events/${eventId}/public-name-mask`, "POST", {
-                masked: e.target.checked,
-              })
-            }
-          />
-          Mask competitor names on the public display (show &quot;Competitor N&quot; instead)
-        </label>
+        {/* 07 S12 "Results and publication": publish/unpublish/export/amend/name-masking all
+            live on the dedicated results screen now, with its live/unpublished/published/
+            revisions tabs — this card is just a status summary and a pointer, not a second copy
+            of those controls. */}
+        <p>
+          <Link href={`/events/${eventId}/results`}>Open results and publication</Link>
+        </p>
       </section>
 
       <section className="card">

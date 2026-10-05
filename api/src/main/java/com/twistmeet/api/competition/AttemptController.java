@@ -56,7 +56,14 @@ public class AttemptController {
   @GetMapping("/api/v1/attempts/{attemptId}/revisions")
   public List<ResultRevisionView> revisions(@PathVariable UUID attemptId) {
     UUID userId = currentUserResolver.requireCurrentUserId();
-    return attemptService.history(attemptId, userId).stream().map(ResultRevisionView::of).toList();
+    return attemptService.history(attemptId, userId);
+  }
+
+  /** 07 S12 "Revisions" tab — every revision across the round, not just one attempt. */
+  @GetMapping("/api/v1/rounds/{roundId}/revisions")
+  public List<ResultRevisionView> revisionsForRound(@PathVariable UUID roundId) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return attemptService.historyForRound(roundId, userId);
   }
 
   @PostMapping("/api/v1/attempts/{attemptId}/start")

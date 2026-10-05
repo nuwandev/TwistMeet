@@ -1,20 +1,27 @@
 package com.twistmeet.api.competition;
 
+import com.twistmeet.api.auth.User;
+import com.twistmeet.api.auth.UserRepository;
 import com.twistmeet.api.common.ApiException;
 import com.twistmeet.api.competition.AttemptDtos.JudgeResultRequest;
+import com.twistmeet.api.competition.AttemptDtos.ResultRevisionView;
 import com.twistmeet.api.competition.AttemptDtos.SelfTimedSubmitRequest;
 import com.twistmeet.api.competition.AttemptDtos.SubmittedStatus;
 import com.twistmeet.api.event.Event;
 import com.twistmeet.api.event.EventRepository;
 import com.twistmeet.api.org.TenantAccessService;
 import com.twistmeet.api.registration.EventEntrant;
+import com.twistmeet.api.registration.EventEntrantRepository;
 import com.twistmeet.api.registration.GuestAuthResolver;
 import com.twistmeet.api.scoring.Penalty;
 import com.twistmeet.api.stream.EventStreamService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +46,8 @@ public class AttemptService {
   private final TenantAccessService tenantAccessService;
   private final GuestAuthResolver guestAuthResolver;
   private final EventStreamService eventStreamService;
+  private final EventEntrantRepository entrantRepository;
+  private final UserRepository userRepository;
 
   public AttemptService(
       AttemptRepository attemptRepository,
@@ -47,7 +56,9 @@ public class AttemptService {
       ResultRevisionRepository resultRevisionRepository,
       TenantAccessService tenantAccessService,
       GuestAuthResolver guestAuthResolver,
-      EventStreamService eventStreamService) {
+      EventStreamService eventStreamService,
+      EventEntrantRepository entrantRepository,
+      UserRepository userRepository) {
     this.attemptRepository = attemptRepository;
     this.roundRepository = roundRepository;
     this.eventRepository = eventRepository;
@@ -55,6 +66,8 @@ public class AttemptService {
     this.tenantAccessService = tenantAccessService;
     this.guestAuthResolver = guestAuthResolver;
     this.eventStreamService = eventStreamService;
+    this.entrantRepository = entrantRepository;
+    this.userRepository = userRepository;
   }
 
   /** Role-filtered get: judge/organizer of the event, or the entrant's own guest session. */
@@ -221,11 +234,60 @@ public class AttemptService {
     return attemptRepository.findByRoundId(roundId);
   }
 
-  public List<ResultRevision> history(UUID attemptId, UUID staffUserId) {
+  public List<ResultRevisionView> history(UUID attemptId, UUID staffUserId) {
     Attempt attempt = findOrNotFound(attemptId);
     Event event = findEventOrNotFound(attempt.getEventId());
     tenantAccessService.requireJudgeOrOrganizer(event, staffUserId);
-    return resultRevisionRepository.findByAttemptIdOrderByCreatedAtAsc(attemptId);
+    List<ResultRevision> revisions =
+        resultRevisionRepository.findByAttemptIdOrderByCreatedAtAsc(attemptId);
+    return enrich(revisions, List.of(attempt));
+  }
+
+  /**
+   * 07 S12 "Revisions list actor, time, reason and before/after values" — every revision across
+   * every attempt in the round, newest first (an audit-review screen wants "what just changed" at
+   * the top, unlike the per-attempt view above which reads chronologically).
+   */
+  public List<ResultRevisionView> historyForRound(UUID roundId, UUID staffUserId) {
+    Round round =
+        roundRepository
+            .findById(roundId)
+            .orElseThrow(() -> ApiException.notFound("Round not found"));
+    Event event = findEventOrNotFound(round.getEventId());
+    tenantAccessService.requireJudgeOrOrganizer(event, staffUserId);
+    List<Attempt> attempts = attemptRepository.findByRoundId(roundId);
+    List<UUID> attemptIds = attempts.stream().map(Attempt::getId).toList();
+    List<ResultRevision> revisions =
+        resultRevisionRepository.findByAttemptIdInOrderByCreatedAtDesc(attemptIds);
+    return enrich(revisions, attempts);
+  }
+
+  private List<ResultRevisionView> enrich(List<ResultRevision> revisions, List<Attempt> attempts) {
+    Map<UUID, Attempt> attemptsById =
+        attempts.stream().collect(Collectors.toMap(Attempt::getId, a -> a));
+    Set<UUID> entrantIds = attempts.stream().map(Attempt::getEntrantId).collect(Collectors.toSet());
+    Map<UUID, String> entrantNames =
+        entrantRepository.findAllById(entrantIds).stream()
+            .collect(Collectors.toMap(EventEntrant::getId, EventEntrant::getDisplayName));
+    Set<UUID> actorIds =
+        revisions.stream()
+            .map(ResultRevision::getActorUserId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toSet());
+    Map<UUID, String> actorNames =
+        userRepository.findAllById(actorIds).stream()
+            .collect(Collectors.toMap(User::getId, User::getDisplayName));
+    return revisions.stream()
+        .map(
+            r -> {
+              Attempt attempt = attemptsById.get(r.getAttemptId());
+              return ResultRevisionView.of(
+                  r,
+                  attempt,
+                  entrantNames.get(attempt.getEntrantId()),
+                  actorNames.get(r.getActorUserId()));
+            })
+        .toList();
   }
 
   /**

@@ -122,6 +122,12 @@ export type AttemptView = {
 
 export type ResultRevisionView = {
   id: string;
+  attemptId: string;
+  attemptNumber: number;
+  entrantId: string;
+  entrantDisplayName: string;
+  actorUserId: string;
+  actorDisplayName: string | null;
   previousRawTimeMs: number | null;
   previousPenalty: Penalty | null;
   previousResultStatus: ResultStatus | null;
