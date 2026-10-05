@@ -101,12 +101,15 @@ progress text update live over SSE, and whether a screen reader announces that u
 if it's within an `aria-live` region) was not verified here. Checked the source: `StatusBadge`
 and the progress paragraph are plain text, not wrapped in an explicit `aria-live` region — the
 `LiveAnnouncer` component (`components/common.tsx`) exists and is used on competitor-facing
-pages for exactly this purpose (announcing async state changes) but is **not used on Tournament
-Control** for the live-updating progress summary. This is a real, specific, actionable gap: a
-screen-reader user watching Tournament Control would not be told when a judge result comes in
-live — they'd have to re-navigate to notice. Recorded as a finding, not fixed in this pass (it is
-a real behavior change, not a one-line label fix, and deserves its own verification with an
-actual screen reader rather than a guessed implementation).
+pages for exactly this purpose (announcing async state changes) but was **not used on Tournament
+Control** for the live-updating progress summary. **Fixed this session**: Tournament Control now
+renders `LiveAnnouncer`, announcing "`N of M attempts complete`" when the completed-attempt count
+rises and the pending-correction count when it rises, tracked across `load()` calls (each
+triggered by an SSE message or a manual action). Re-ran the critical-journey E2E test after the
+change to confirm nothing broke; **still not verified with an actual screen reader** reading the
+announcement aloud — the ref-tracked logic and the `aria-live="polite"`/`role="status"` markup
+are correct by inspection, but "correct markup" and "confirmed with a real screen reader" are not
+the same claim, and only the former is made here.
 
 ### Color contrast
 
@@ -125,10 +128,11 @@ present at scan time).
 | Reduced motion | **Verified** — no meaningful motion exists to suppress |
 | Keyboard focus-visibility (CSS rule) | **Verified exists**; automated Tab-walk result inconclusive, flagged for manual follow-up |
 | 200% zoom | **Not meaningfully tested** — proxy used, real browser-zoom check still needed |
-| Screen reader | **Not tested** with a real screen reader; found Tournament Control's live progress updates aren't in an `aria-live` region (competitor pages already use one) — real, unfixed gap |
+| Screen reader | Found + **fixed** Tournament Control's missing `aria-live` announcement; **still not tested** with an actual screen reader reading it aloud |
 | Color contrast | **Verified** (axe `color-contrast`, no violations found) |
 
-This is a genuine automated-plus-code-level pass, not a claim of a full WCAG 2.2 AA audit. The
-screen-reader gap (Tournament Control's live updates) and the keyboard-focus follow-up are the
-two items most worth a human accessibility reviewer's time before a real pilot, not something
-this task can close out unilaterally with more automation alone.
+This is a genuine automated-plus-code-level pass, not a claim of a full WCAG 2.2 AA audit. A real
+screen-reader verification of the Tournament Control announcement fix, a real 200%-browser-zoom
+check, and the keyboard-focus follow-up are the items most worth a human accessibility
+reviewer's time before a real pilot, not something this task can close out unilaterally with
+more automation alone.
