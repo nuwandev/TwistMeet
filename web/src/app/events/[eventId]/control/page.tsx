@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
 import { AttemptView, CorrectionView, EventView, RoundView } from "@/lib/types";
 import {
   ConfirmDialog,
   EmptyState,
   ErrorState,
+  LiveAnnouncer,
   LoadingState,
   OfflineState,
   RoleBanner,
@@ -38,6 +39,9 @@ export default function TournamentControlPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [busy, setBusy] = useState(false);
   const [confirmAction, setConfirmAction] = useState<null | "pause" | "close">(null);
+  const [announcement, setAnnouncement] = useState("");
+  const previousCompleteRef = useRef<number | null>(null);
+  const previousHelpRef = useRef<number | null>(null);
 
   const liveRound = useMemo(() => rounds?.find((r) => r.state === "LIVE") ?? null, [rounds]);
 
@@ -50,12 +54,29 @@ export default function TournamentControlPage() {
       const live = roundList.find((r) => r.state === "LIVE");
       if (live) {
         const roundAttempts = await apiFetch<AttemptView[]>(`/api/v1/rounds/${live.id}/attempts`);
-        setAttempts(roundAttempts.sort((a, b) => a.attemptNumber - b.attemptNumber));
+        roundAttempts.sort((a, b) => a.attemptNumber - b.attemptNumber);
+        setAttempts(roundAttempts);
         const pending = await apiFetch<CorrectionView[]>(
           `/api/v1/events/${eventId}/corrections?state=PENDING`,
         );
         const liveAttemptIds = new Set(roundAttempts.map((a) => a.id));
-        setCorrections(pending.filter((c) => liveAttemptIds.has(c.attemptId)));
+        const liveCorrections = pending.filter((c) => liveAttemptIds.has(c.attemptId));
+        setCorrections(liveCorrections);
+
+        // 07 S08's progress summary and connection state update live over SSE with no page
+        // reload; a sighted user sees the number change, but a screen reader needs an explicit
+        // announcement (same aria-live pattern e/[eventId] already uses for the competitor side).
+        const completeNow = roundAttempts.filter((a) => a.resultStatus !== "PENDING").length;
+        if (previousCompleteRef.current !== null && completeNow > previousCompleteRef.current) {
+          setAnnouncement(`${completeNow} of ${roundAttempts.length} attempts complete.`);
+        }
+        previousCompleteRef.current = completeNow;
+        if (previousHelpRef.current !== null && liveCorrections.length > previousHelpRef.current) {
+          setAnnouncement(
+            `${liveCorrections.length} correction${liveCorrections.length === 1 ? "" : "s"} pending.`,
+          );
+        }
+        previousHelpRef.current = liveCorrections.length;
       } else {
         setAttempts([]);
         setCorrections([]);
@@ -148,6 +169,7 @@ export default function TournamentControlPage() {
   return (
     <main style={{ maxWidth: 960, margin: "0 auto", padding: "var(--space-4) var(--space-2)" }}>
       <RoleBanner eventId={eventId} />
+      <LiveAnnouncer message={announcement} />
       <h1>Tournament Control</h1>
       <p>
         <strong>{event.name}</strong> — round <strong>{liveRound.name}</strong>{" "}
