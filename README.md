@@ -121,6 +121,34 @@ every environment this has been developed in (see `DECISIONS.md`). Tests reset t
 (`Flyway.clean()` + `migrate()`) before each test method, so point `TWISTMEET_DB_URL` at a
 database you're fine seeing wiped repeatedly, not one with data you care about.
 
+### Browser E2E critical-journey test
+
+`web/e2e/critical-journey.spec.ts` drives a full organizer+competitor golden path (register,
+verify email, create org/event, open registration, guest joins, run a round through to a judged
+result, confirm Tournament Control's live update and connection-state badge, close the round,
+check standings) through a real Chromium browser against the real running app — not mocked.
+**Not wired into CI yet** (see below for why); run it manually:
+
+```bash
+# 1. Start Postgres (the usual local/CI one), then the API and web dev servers:
+cd api && ./gradlew bootRun &
+cd web && npm run dev &
+
+# 2. Start the dev-only mail catcher (reads the verification link SmtpMailService actually sends,
+#    since there's no mailbox to check otherwise):
+python3 web/e2e/mailcatcher.py &
+
+# 3. Run the test:
+cd web && npx playwright test
+```
+
+This needs Chromium (`npx playwright install chromium` if you don't already have one Playwright
+can find) and `@playwright/test`/`@axe-core/playwright` (`npm install`, already in
+`package.json`). Not yet added to `.github/workflows/ci.yml`: wiring it in needs the workflow to
+also start the mail catcher and both dev servers and wait for them to be ready, which is real
+additional CI-infrastructure work beyond this test's own scope — tracked as a follow-up, not
+silently skipped.
+
 ## What's implemented vs. planned
 
 See `TRACEABILITY.md` section G for the full per-route status. In short: staff register/login/
