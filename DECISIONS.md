@@ -4,6 +4,30 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
+## Status: Final V1 acceptance pass complete — not deployed, not publicly launched
+
+A requirement-by-requirement re-verification against the controlling specs and actual code/tests
+(not prior self-reported "Built" claims) found several real gaps in the V1 audit pass below and
+closed them: **S12's dedicated live/unpublished/published/revisions tabs are now actually
+built** (a real ARIA-tabbed `events/[eventId]/results` screen — superseding the "remain deferred"
+note at the bottom of the M5 status section below); tie-break DNF-last and still-tied branches
+gained missing test coverage (the behavior was already implemented, untested); accessibility
+acceptance was re-verified with stronger mechanisms (CDP-based real browser zoom, corrected
+keyboard-focus measurement), with screen-reader verification still explicitly not performed (no
+screen reader available in this environment) and WCAG 2.2 AA still not claimed; the committed
+critical-journey E2E test is now wired into CI (`.github/workflows/ci.yml`'s `e2e` job) and
+confirmed green after fixing a sandbox-specific hardcoded Chromium path that had broken it on the
+first attempt; and a personal-data export + idempotent deletion-request mechanism is now built
+(`GET /api/v1/me/export`, `GET /api/v1/guest/events/{eventId}/me/export`,
+`POST /api/v1/me/deletion-request`), with the actual retention-period decisions left to an owner
+decision register (`DATA_RETENTION_DECISIONS.md`) rather than invented here. `TRACEABILITY.md`'s
+requirement rows (not only its changelog) were corrected to match, including the accessibility row
+which previously overstated what had been verified. TNoodle/cubing.js license review,
+hosting/domain, production email, legal jurisdiction, support owner, pilot size, and translations
+remain explicit open launch decisions — not resolved, not silently dropped. No cloud resources
+were created, altered, or deleted. Nothing was deployed, published, or described as
+worldwide-launch-ready.
+
 ## Status: V1 audit pass complete — gap closure before M6
 
 A post-M5 requirement-by-requirement re-audit against `00` §2 and `07`/`08`/`09` found that
