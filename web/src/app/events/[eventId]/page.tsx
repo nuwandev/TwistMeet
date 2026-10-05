@@ -374,7 +374,7 @@ export default function EventDetailPage() {
         )}
         <form onSubmit={handleCreateRound} style={{ display: "flex", gap: "var(--space-1)", marginTop: "var(--space-2)", flexWrap: "wrap" }}>
           <input className="field-input" name="name" placeholder="Round name" required minLength={1} maxLength={80} defaultValue="Final" />
-          <select className="field-input" name="format" defaultValue="AO5">
+          <select className="field-input" name="format" defaultValue="AO5" aria-label="Round format">
             <option value="BO1">Best of 1</option>
             <option value="BO2">Best of 2</option>
             <option value="BO3">Best of 3</option>
