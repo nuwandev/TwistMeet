@@ -7,6 +7,7 @@ import com.twistmeet.api.event.EventDtos.CreateEventRequest;
 import com.twistmeet.api.event.EventDtos.UpdateEventRequest;
 import com.twistmeet.api.org.TenantAccessService;
 import com.twistmeet.api.scoring.RulesetVersion;
+import com.twistmeet.api.stream.EventStreamService;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -42,18 +43,21 @@ public class EventService {
   private final TenantAccessService tenantAccessService;
   private final AuditService auditService;
   private final ObjectMapper objectMapper;
+  private final EventStreamService eventStreamService;
 
   public EventService(
       EventRepository eventRepository,
       com.twistmeet.api.competition.RoundRepository roundRepository,
       TenantAccessService tenantAccessService,
       AuditService auditService,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      EventStreamService eventStreamService) {
     this.eventRepository = eventRepository;
     this.roundRepository = roundRepository;
     this.tenantAccessService = tenantAccessService;
     this.auditService = auditService;
     this.objectMapper = objectMapper;
+    this.eventStreamService = eventStreamService;
   }
 
   @Transactional
@@ -190,6 +194,7 @@ public class EventService {
         "Event",
         event.getId().toString(),
         null);
+    eventStreamService.publish(event.getId(), "EVENT_PUBLISHED", event.getId(), Set.of("publishedAt"));
     return event;
   }
 
@@ -207,6 +212,7 @@ public class EventService {
         "Event",
         event.getId().toString(),
         null);
+    eventStreamService.publish(event.getId(), "EVENT_UNPUBLISHED", event.getId(), Set.of("publishedAt"));
     return event;
   }
 

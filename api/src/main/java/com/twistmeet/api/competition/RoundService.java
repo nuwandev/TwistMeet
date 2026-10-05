@@ -12,6 +12,7 @@ import com.twistmeet.api.org.TenantAccessService;
 import com.twistmeet.api.registration.EntrantStatus;
 import com.twistmeet.api.registration.EventEntrant;
 import com.twistmeet.api.registration.EventEntrantRepository;
+import com.twistmeet.api.stream.EventStreamService;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -44,6 +45,7 @@ public class RoundService {
   private final RoundQualifiedEntrantRepository qualifiedEntrantRepository;
   private final TenantAccessService tenantAccessService;
   private final AuditService auditService;
+  private final EventStreamService eventStreamService;
 
   public RoundService(
       RoundRepository roundRepository,
@@ -53,7 +55,8 @@ public class RoundService {
       CorrectionRepository correctionRepository,
       RoundQualifiedEntrantRepository qualifiedEntrantRepository,
       TenantAccessService tenantAccessService,
-      AuditService auditService) {
+      AuditService auditService,
+      EventStreamService eventStreamService) {
     this.roundRepository = roundRepository;
     this.eventRepository = eventRepository;
     this.entrantRepository = entrantRepository;
@@ -62,6 +65,7 @@ public class RoundService {
     this.qualifiedEntrantRepository = qualifiedEntrantRepository;
     this.tenantAccessService = tenantAccessService;
     this.auditService = auditService;
+    this.eventStreamService = eventStreamService;
   }
 
   @Transactional
@@ -222,6 +226,7 @@ public class RoundService {
         "Round",
         roundId.toString(),
         null);
+    eventStreamService.publish(round.getEventId(), "ROUND_STATE_CHANGED", roundId, Set.of("paused"));
     return round;
   }
 
@@ -257,6 +262,7 @@ public class RoundService {
         "Round",
         roundId.toString(),
         null);
+    eventStreamService.publish(eventId, "ROUND_STATE_CHANGED", roundId, Set.of("state"));
     return round;
   }
 
@@ -291,6 +297,7 @@ public class RoundService {
         "Round",
         roundId.toString(),
         null);
+    eventStreamService.publish(eventId, "ROUND_STATE_CHANGED", roundId, Set.of("state"));
     return round;
   }
 
@@ -320,6 +327,7 @@ public class RoundService {
         "Round",
         roundId.toString(),
         null);
+    eventStreamService.publish(eventId, "ROUND_STATE_CHANGED", roundId, Set.of("state"));
     return round;
   }
 

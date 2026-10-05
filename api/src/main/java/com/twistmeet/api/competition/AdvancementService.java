@@ -20,6 +20,7 @@ import com.twistmeet.api.scoring.RankingService.Scored;
 import com.twistmeet.api.scoring.RoundResult;
 import com.twistmeet.api.scoring.ScoredAttempt;
 import com.twistmeet.api.scoring.ScoringEngine;
+import com.twistmeet.api.stream.EventStreamService;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -56,6 +57,7 @@ public class AdvancementService {
   private final TenantAccessService tenantAccessService;
   private final AuditService auditService;
   private final com.twistmeet.api.scramble.ScrambleService scrambleService;
+  private final EventStreamService eventStreamService;
 
   public AdvancementService(
       RoundRepository roundRepository,
@@ -65,7 +67,8 @@ public class AdvancementService {
       RoundQualifiedEntrantRepository qualifiedEntrantRepository,
       TenantAccessService tenantAccessService,
       AuditService auditService,
-      com.twistmeet.api.scramble.ScrambleService scrambleService) {
+      com.twistmeet.api.scramble.ScrambleService scrambleService,
+      EventStreamService eventStreamService) {
     this.roundRepository = roundRepository;
     this.eventRepository = eventRepository;
     this.attemptRepository = attemptRepository;
@@ -74,6 +77,7 @@ public class AdvancementService {
     this.tenantAccessService = tenantAccessService;
     this.auditService = auditService;
     this.scrambleService = scrambleService;
+    this.eventStreamService = eventStreamService;
   }
 
   /**
@@ -121,6 +125,8 @@ public class AdvancementService {
         "Round",
         roundId.toString(),
         "tie-break among " + preview.tiedPendingResolution().size() + " entrant(s)");
+    eventStreamService.publish(
+        event.getId(), "TIE_BREAK_ATTEMPTS_CREATED", roundId, Set.of("tiedPendingResolution"));
     return preview.tiedPendingResolution();
   }
 
@@ -192,6 +198,8 @@ public class AdvancementService {
             + preview.eligibleCount()
             + " to "
             + nextRound.getName());
+    eventStreamService.publish(
+        event.getId(), "ADVANCEMENT_COMMITTED", roundId, Set.of("advancementCommittedAt"));
     return AdvancementCommitView.of(preview, false);
   }
 

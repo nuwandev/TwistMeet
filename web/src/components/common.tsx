@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiFetch, ApiError } from "@/lib/api";
+import { API_BASE_URL, apiFetch, ApiError } from "@/lib/api";
 import { MyRole } from "@/lib/types";
 
 /**
@@ -131,6 +131,82 @@ export function useOnlineStatus(): boolean {
   }, []);
 
   return online;
+}
+
+export type ConnectionState = "connecting" | "connected" | "disconnected";
+
+/**
+ * 08 "Real-time updates": subscribes to the authenticated, event-scoped SSE channel at
+ * `/api/v1/events/{eventId}/stream` and calls `onEvent` for every update. Per the contract,
+ * updates never carry the changed data itself — only {eventType, resourceId, changedFields,
+ * occurredAt} — so `onEvent` is expected to refetch the REST snapshot rather than trust any
+ * value off the wire. 07 S08 "connection state" is surfaced via the returned {@link
+ * ConnectionState} so Tournament Control can show it. The browser's EventSource reconnects
+ * automatically with backoff on a dropped connection; each successful reconnect re-triggers
+ * `onEvent` once so the caller refetches in case any update was missed while disconnected.
+ */
+export function useEventStream(eventId: string | undefined, onEvent: () => void): ConnectionState {
+  const [state, setState] = useState<ConnectionState>("connecting");
+  const onEventRef = useRef(onEvent);
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
+
+  useEffect(() => {
+    if (!eventId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting on resubscribe is the point
+    setState("connecting");
+    const source = new EventSource(`${API_BASE_URL}/api/v1/events/${eventId}/stream`, {
+      withCredentials: true,
+    });
+    source.onopen = () => {
+      setState("connected");
+      onEventRef.current();
+    };
+    source.onerror = () => {
+      // EventSource retries on its own; reflect the drop in the UI until it reopens.
+      setState("disconnected");
+    };
+    source.onmessage = () => {
+      onEventRef.current();
+    };
+    return () => {
+      source.close();
+    };
+  }, [eventId]);
+
+  return state;
+}
+
+/** Same as {@link useEventStream} but for the unauthenticated public channel (07 S13). */
+export function usePublicEventStream(publicSlug: string | undefined, onEvent: () => void): ConnectionState {
+  const [state, setState] = useState<ConnectionState>("connecting");
+  const onEventRef = useRef(onEvent);
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
+
+  useEffect(() => {
+    if (!publicSlug) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting on resubscribe is the point
+    setState("connecting");
+    const source = new EventSource(`${API_BASE_URL}/api/v1/public/events/${publicSlug}/stream`);
+    source.onopen = () => {
+      setState("connected");
+      onEventRef.current();
+    };
+    source.onerror = () => {
+      setState("disconnected");
+    };
+    source.onmessage = () => {
+      onEventRef.current();
+    };
+    return () => {
+      source.close();
+    };
+  }, [publicSlug]);
+
+  return state;
 }
 
 /**

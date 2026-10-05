@@ -10,8 +10,10 @@ import com.twistmeet.api.event.EventRepository;
 import com.twistmeet.api.org.TenantAccessService;
 import com.twistmeet.api.registration.EventEntrant;
 import com.twistmeet.api.registration.GuestAuthResolver;
+import com.twistmeet.api.stream.EventStreamService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,7 @@ public class HelpRequestService {
   private final TenantAccessService tenantAccessService;
   private final GuestAuthResolver guestAuthResolver;
   private final AuditService auditService;
+  private final EventStreamService eventStreamService;
 
   public HelpRequestService(
       HelpRequestRepository helpRequestRepository,
@@ -37,13 +40,15 @@ public class HelpRequestService {
       EventRepository eventRepository,
       TenantAccessService tenantAccessService,
       GuestAuthResolver guestAuthResolver,
-      AuditService auditService) {
+      AuditService auditService,
+      EventStreamService eventStreamService) {
     this.helpRequestRepository = helpRequestRepository;
     this.attemptRepository = attemptRepository;
     this.eventRepository = eventRepository;
     this.tenantAccessService = tenantAccessService;
     this.guestAuthResolver = guestAuthResolver;
     this.auditService = auditService;
+    this.eventStreamService = eventStreamService;
   }
 
   @Transactional
@@ -81,6 +86,8 @@ public class HelpRequestService {
         "HELP_REQUESTED",
         "HelpRequest",
         helpRequest.getId().toString());
+    eventStreamService.publish(
+        event.getId(), "HELP_REQUESTED", helpRequest.getId(), Set.of("state"));
     return helpRequest;
   }
 
@@ -117,6 +124,8 @@ public class HelpRequestService {
         "HelpRequest",
         helpRequestId.toString(),
         null);
+    eventStreamService.publish(
+        event.getId(), "HELP_REQUEST_RESOLVED", helpRequestId, Set.of("state"));
     return helpRequest;
   }
 }

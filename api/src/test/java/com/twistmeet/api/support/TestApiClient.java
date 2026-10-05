@@ -79,6 +79,11 @@ public class TestApiClient {
     cookieJar.clear();
   }
 
+  /** Exposes the current cookie jar as a request header value, for a raw streaming HTTP client. */
+  public String cookieHeaderForRawRequest() {
+    return cookieHeader();
+  }
+
   public boolean is2xx(ResponseEntity<?> response) {
     return response.getStatusCode().is2xxSuccessful();
   }

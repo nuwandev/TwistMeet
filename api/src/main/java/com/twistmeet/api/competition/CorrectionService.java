@@ -10,8 +10,10 @@ import com.twistmeet.api.org.TenantAccessService;
 import com.twistmeet.api.registration.EventEntrant;
 import com.twistmeet.api.registration.GuestAuthResolver;
 import com.twistmeet.api.scramble.ScrambleService;
+import com.twistmeet.api.stream.EventStreamService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +38,7 @@ public class CorrectionService {
   private final GuestAuthResolver guestAuthResolver;
   private final AuditService auditService;
   private final ScrambleService scrambleService;
+  private final EventStreamService eventStreamService;
 
   public CorrectionService(
       CorrectionRepository correctionRepository,
@@ -45,7 +48,8 @@ public class CorrectionService {
       TenantAccessService tenantAccessService,
       GuestAuthResolver guestAuthResolver,
       AuditService auditService,
-      ScrambleService scrambleService) {
+      ScrambleService scrambleService,
+      EventStreamService eventStreamService) {
     this.correctionRepository = correctionRepository;
     this.attemptRepository = attemptRepository;
     this.attemptService = attemptService;
@@ -54,6 +58,7 @@ public class CorrectionService {
     this.guestAuthResolver = guestAuthResolver;
     this.auditService = auditService;
     this.scrambleService = scrambleService;
+    this.eventStreamService = eventStreamService;
   }
 
   @Transactional
@@ -77,6 +82,8 @@ public class CorrectionService {
         "CORRECTION_REQUESTED",
         "Correction",
         correction.getId().toString());
+    eventStreamService.publish(
+        event.getId(), "CORRECTION_REQUESTED", correction.getId(), Set.of("state"));
     return correction;
   }
 
@@ -135,6 +142,7 @@ public class CorrectionService {
         "Correction",
         correctionId.toString(),
         body.reason());
+    eventStreamService.publish(event.getId(), "CORRECTION_DECIDED", correctionId, Set.of("state", "decision"));
     return correction;
   }
 

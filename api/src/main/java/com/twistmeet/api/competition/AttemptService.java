@@ -10,8 +10,10 @@ import com.twistmeet.api.org.TenantAccessService;
 import com.twistmeet.api.registration.EventEntrant;
 import com.twistmeet.api.registration.GuestAuthResolver;
 import com.twistmeet.api.scoring.Penalty;
+import com.twistmeet.api.stream.EventStreamService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,7 @@ public class AttemptService {
   private final ResultRevisionRepository resultRevisionRepository;
   private final TenantAccessService tenantAccessService;
   private final GuestAuthResolver guestAuthResolver;
+  private final EventStreamService eventStreamService;
 
   public AttemptService(
       AttemptRepository attemptRepository,
@@ -43,13 +46,15 @@ public class AttemptService {
       EventRepository eventRepository,
       ResultRevisionRepository resultRevisionRepository,
       TenantAccessService tenantAccessService,
-      GuestAuthResolver guestAuthResolver) {
+      GuestAuthResolver guestAuthResolver,
+      EventStreamService eventStreamService) {
     this.attemptRepository = attemptRepository;
     this.roundRepository = roundRepository;
     this.eventRepository = eventRepository;
     this.resultRevisionRepository = resultRevisionRepository;
     this.tenantAccessService = tenantAccessService;
     this.guestAuthResolver = guestAuthResolver;
+    this.eventStreamService = eventStreamService;
   }
 
   /** Role-filtered get: judge/organizer of the event, or the entrant's own guest session. */
@@ -132,7 +137,13 @@ public class AttemptService {
       throw ApiException.invalidTransition("Attempt is not awaiting submission");
     }
     attempt.submitSelfTimed(rawTimeMs, penalty, newStatus, body.clientBuild());
-    return attemptRepository.save(attempt);
+    attempt = attemptRepository.save(attempt);
+    eventStreamService.publish(
+        attempt.getEventId(),
+        "ATTEMPT_UPDATED",
+        attemptId,
+        Set.of("resultStatus", "rawTimeMs", "penalty"));
+    return attempt;
   }
 
   /** Judge entry; every call (including the first) records a revision (08, 00 §9). */
@@ -186,6 +197,11 @@ public class AttemptService {
             penalty,
             newStatus,
             body.note()));
+    eventStreamService.publish(
+        attempt.getEventId(),
+        "ATTEMPT_UPDATED",
+        attemptId,
+        Set.of("resultStatus", "rawTimeMs", "penalty"));
     return attempt;
   }
 

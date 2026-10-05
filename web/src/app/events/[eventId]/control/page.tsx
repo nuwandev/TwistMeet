@@ -13,6 +13,7 @@ import {
   OfflineState,
   RoleBanner,
   StatusBadge,
+  useEventStream,
   useOnlineStatus,
 } from "@/components/common";
 
@@ -69,6 +70,8 @@ export default function TournamentControlPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount
     load();
   }, [load]);
+
+  const connection = useEventStream(eventId, load);
 
   async function runAction(path: string) {
     setBusy(true);
@@ -152,6 +155,13 @@ export default function TournamentControlPage() {
         {liveRound.paused && <StatusBadge tone="warn">PAUSED</StatusBadge>}{" "}
         <StatusBadge tone="neutral">
           {event.timerMode === "PHYSICAL_JUDGE" ? "Judge recorded · physical timer" : "Self-timed · device/browser timing"}
+        </StatusBadge>{" "}
+        <StatusBadge tone={connection === "connected" ? "good" : connection === "connecting" ? "neutral" : "warn"}>
+          {connection === "connected"
+            ? "Live"
+            : connection === "connecting"
+              ? "Connecting…"
+              : "Reconnecting…"}
         </StatusBadge>
       </p>
       {liveRound.startedAt && (

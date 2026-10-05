@@ -4,7 +4,15 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
 import { PublicEventView, PublicStandingsView } from "@/lib/types";
-import { EmptyState, ErrorState, LoadingState, OfflineState, StatusBadge, useOnlineStatus } from "@/components/common";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  OfflineState,
+  StatusBadge,
+  useOnlineStatus,
+  usePublicEventStream,
+} from "@/components/common";
 
 /**
  * 07 S13 Public display: fullscreen scoreboard, no auth. Only published events/rounds are ever
@@ -52,6 +60,8 @@ export default function PublicEventPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- re-fetch when round selection changes
     loadStandings();
   }, [loadStandings]);
+
+  usePublicEventStream(slug, loadStandings);
 
   if (error && !event) {
     return (
