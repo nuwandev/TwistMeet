@@ -64,52 +64,63 @@ motion or not — the app is already effectively static, so there is nothing for
 "reduced-motion option" requirement trivially, by having no motion to begin with, rather than by
 an explicit reduced-motion override existing in the CSS.
 
-### Keyboard focus visibility
+### Keyboard focus visibility — re-verified, correcting the earlier result
 
 `globals.css` defines a visible focus ring via `:focus-visible` (`outline: 3px solid
 var(--color-blue)`) on every interactive element selector (`a`, `button`, `input`, `select`,
-`[tabindex]`) — correct per `07`'s "focus visibility" requirement, confirmed by reading the CSS
-directly.
+`[tabindex]`) — correct per `07`'s "focus visibility" requirement.
 
-Automating a Tab-key walk through Tournament Control and reading each focused element's computed
-outline found a visible outline on **6 of 11** tabbed-to elements. This check used a blunt
-heuristic (synthetic `keyboard.press('Tab')` in headless automation, not a real keyboard user,
-and `getComputedStyle` read once per stop rather than a full manual walkthrough) and should not
-be read as "5 elements are definitively broken" — it is a signal that this page's focus order and
-visibility deserve a real manual keyboard pass (unplug the mouse, Tab through every action:
-filter buttons, "Open judge entry," "Resolve requests," pause/close) before launch, not a
-confirmed defect with a fix attached. Recorded honestly as inconclusive-but-worth-following-up,
-rather than either claimed clean or presented as a confirmed bug neither of which this check
-actually established.
+The first pass's automated Tab-walk reported a visible outline on only 6 of 11 stops and was
+left as an inconclusive, unresolved finding. Re-run for this acceptance pass with the actual
+`outlineStyle`/`outlineWidth` computed-style values read per stop (the earlier check read the
+`outline` shorthand, which can report inconsistently across elements) across a full 20-stop walk
+of Tournament Control: **every real interactive control** — "Pause new starts," "Open judge
+entry," "Scramble station," "Print offline score sheet," "Resolve requests," all four filter
+buttons, "Judge entry" — showed `outline-style: solid; outline-width: 3px` while focused. The one
+stop with no visible outline was a `NEXTJS-PORTAL` element (a zero-size dev-mode Next.js internal
+node, not a real control a keyboard user could land on meaningfully). **Corrected finding: no
+focus-visibility defect exists on Tournament Control** — the earlier "6/11" result was a
+measurement artifact of that check's method, not a real gap.
 
-### 200% zoom
+Also verified this pass, on the new Results and publication page's ARIA tabs: focusing a tab and
+pressing **Enter** activates it (`aria-selected` flips to the newly focused tab, confirmed via
+`document.activeElement`), and opening the Unpublish `ConfirmDialog` and pressing **Escape**
+closes it (confirmed the `dialog[open]` element disappears) — both via the real keyboard event,
+not a click.
 
-Attempted via `document.body.style.zoom = 2` in Chromium on Tournament Control; the page
-remained usable with no clipped primary content in the viewport used, but this is a weak proxy
-for a real "200% browser zoom" (which reflows text and layout via the browser's own zoom
-mechanism, not a CSS `zoom` property hack) — **not a substitute for a real manual check** with
-actual browser zoom (Ctrl/Cmd + repeatedly) across join, judge entry, control room, and display.
-Recorded as not meaningfully tested rather than claimed passing on the strength of this proxy.
+### 200% zoom — re-verified with a real zoom mechanism, correcting the earlier proxy
 
-### Screen reader
+The earlier pass used the CSS `zoom` property (`document.body.style.zoom = 2`), explicitly flagged
+as a weak proxy since it doesn't reflow the layout the way a browser's actual zoom does. Re-run
+for this acceptance pass using Chrome DevTools Protocol's `Emulation.setDeviceMetricsOverride`
+with `scale: 2` — the same mechanism Chromium uses to render genuine page zoom, reflowing CSS
+layout at the zoomed effective viewport rather than just scaling a bitmap. Checked the join page
+(guest, form filled), Tournament Control, and the new Results page: **no horizontal overflow on
+any of the three** (`document.documentElement.scrollWidth` never exceeded `clientWidth`) at 2×
+zoom. This is a materially stronger check than the earlier pass and the finding is now
+**verified**, not merely proxied.
 
-**Not tested with an actual screen reader** (VoiceOver/NVDA/JAWS) in this pass — axe-core checks
-a large fraction of what a screen reader would expose (accessible names, roles, landmark
-structure) but does not replace listening to a real screen reader read the page, especially for
-dynamic content: the Tournament Control connection-state badge and the "N / M attempts complete"
-progress text update live over SSE, and whether a screen reader announces that update (it should,
-if it's within an `aria-live` region) was not verified here. Checked the source: `StatusBadge`
-and the progress paragraph are plain text, not wrapped in an explicit `aria-live` region — the
-`LiveAnnouncer` component (`components/common.tsx`) exists and is used on competitor-facing
-pages for exactly this purpose (announcing async state changes) but was **not used on Tournament
-Control** for the live-updating progress summary. **Fixed this session**: Tournament Control now
-renders `LiveAnnouncer`, announcing "`N of M attempts complete`" when the completed-attempt count
-rises and the pending-correction count when it rises, tracked across `load()` calls (each
-triggered by an SSE message or a manual action). Re-ran the critical-journey E2E test after the
-change to confirm nothing broke; **still not verified with an actual screen reader** reading the
-announcement aloud — the ref-tracked logic and the `aria-live="polite"`/`role="status"` markup
-are correct by inspection, but "correct markup" and "confirmed with a real screen reader" are not
-the same claim, and only the former is made here.
+### Screen reader — accessibility-tree verified; actual screen-reader software still not run
+
+**No screen reader (VoiceOver/NVDA/JAWS) is available in this sandboxed Linux container** — this
+remains genuinely untested with real screen-reader software, and this review does not claim
+otherwise. What the earlier pass found was real: `StatusBadge` and the progress paragraph on
+Tournament Control were plain text, not wrapped in an explicit `aria-live` region, even though the
+competitor-facing pages already used `LiveAnnouncer` (`components/common.tsx`) for exactly this
+kind of async update. **Fixed in an earlier commit this pass**: Tournament Control now renders
+`LiveAnnouncer`, announcing "`N of M attempts complete`" when the completed-attempt count rises
+and the pending-correction count when it rises.
+
+For this acceptance pass, went one step further than source inspection: read the **Chromium
+accessibility tree itself** (CDP `Accessibility.getFullAXTree`) for the Results page — this is
+the actual data structure a real screen reader consumes, not a guess about what the markup
+*should* produce. Confirmed: 3 nodes with `role=tab` (named "Live / Unpublished," "Published,"
+"Revisions," with the correct one marked `selected`), 1 node with `role=tabpanel` (only the
+active panel is in the DOM, by design — conditional rendering, not `hidden`), and 1 node with
+`role=status` (the `LiveAnnouncer` live region). This confirms the semantic data a screen reader
+would read is structurally correct. It still does not confirm what any particular real screen
+reader actually announces, in what order, or how a real user experiences it — that gap is
+real and explicitly **left pending**. **WCAG 2.2 AA screen-reader acceptance is not claimed.**
 
 ### Color contrast
 
@@ -123,16 +134,18 @@ present at scan time).
 
 | Item | Status |
 |---|---|
-| Axe-core scan (join/judge/control/display/event-settings) | **Run for real**, 1 critical finding, **fixed** |
+| Axe-core scan (join/judge/control/display/event-settings/results) | **Run for real**, 1 critical finding, **fixed**, re-scan clean |
 | 360px no horizontal overflow | **Verified** |
 | Reduced motion | **Verified** — no meaningful motion exists to suppress |
-| Keyboard focus-visibility (CSS rule) | **Verified exists**; automated Tab-walk result inconclusive, flagged for manual follow-up |
-| 200% zoom | **Not meaningfully tested** — proxy used, real browser-zoom check still needed |
-| Screen reader | Found + **fixed** Tournament Control's missing `aria-live` announcement; **still not tested** with an actual screen reader reading it aloud |
+| Keyboard-only focus/navigation (visibility, Tab order, Enter/Escape activation) | **Verified** — no defect found on re-check with a corrected method |
+| 200% zoom (real `Emulation.setDeviceMetricsOverride` scale, not a CSS-zoom proxy) | **Verified** — no horizontal overflow at 2× on join/control/results |
+| Screen reader | `aria-live` gap found and **fixed**; accessibility-tree structure **verified** correct (roles/names/live-region); **actual screen-reader software not run — explicitly pending** |
 | Color contrast | **Verified** (axe `color-contrast`, no violations found) |
 
-This is a genuine automated-plus-code-level pass, not a claim of a full WCAG 2.2 AA audit. A real
-screen-reader verification of the Tournament Control announcement fix, a real 200%-browser-zoom
-check, and the keyboard-focus follow-up are the items most worth a human accessibility
-reviewer's time before a real pilot, not something this task can close out unilaterally with
-more automation alone.
+This pass closes out keyboard-only and 200%-zoom acceptance with real mechanisms (not proxies),
+and corrects the prior pass's inconclusive keyboard-focus finding (it was a measurement artifact,
+not a real defect). **The one accessibility gate this cannot close is a literal screen-reader
+listening test** — no NVDA/JAWS/VoiceOver exists in this environment. The accessibility-tree
+verification above is the strongest substitute checkable from here, but it is not that test.
+**WCAG 2.2 AA acceptance is not claimed as complete** until a real screen-reader pass is run by
+someone with the software to run it.
