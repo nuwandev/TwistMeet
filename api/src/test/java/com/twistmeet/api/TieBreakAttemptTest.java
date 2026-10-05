@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.twistmeet.api.support.AbstractIntegrationTest;
 import com.twistmeet.api.support.TestApiClient;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import tools.jackson.databind.JsonNode;
@@ -102,6 +103,91 @@ class TieBreakAttemptTest extends AbstractIntegrationTest {
             Map.of("expectedVersion", versionNow));
     assertThat(commit.getStatusCode().value()).isEqualTo(200);
     assertThat(json(commit).get("advancedCount").asInt()).isEqualTo(1);
+  }
+
+  /** 09: "winner policy is the lower valid time, DNF last" — DNF never wins a tie-break. */
+  @Test
+  void tieBreakWinnerIsLowerValidTimeAndDnfRanksLastEvenIfRecordedFirst() throws Exception {
+    String orgId = registerVerifyAndCreateOrg(client, "tb4@example.com", "Owner4", "TB Org 4");
+    String eventId = createEvent(client, orgId, "TB Event 4", "PHYSICAL_JUDGE");
+    String tieRoundId = createRoundWithTiePolicy(eventId, 1, "TOP_N", 1, "TIE_BREAK_ATTEMPT");
+    String joinCode = openRegistration(client, eventId);
+    TestApiClient guestA = new TestApiClient(restTemplate);
+    String entrantA = joinAsGuest(guestA, joinCode, "TB4 Entrant A");
+    TestApiClient guestB = new TestApiClient(restTemplate);
+    String entrantB = joinAsGuest(guestB, joinCode, "TB4 Entrant B");
+
+    client.post("/api/v1/rounds/" + tieRoundId + "/prepare", null);
+    client.post("/api/v1/rounds/" + tieRoundId + "/ready", null);
+    client.post("/api/v1/rounds/" + tieRoundId + "/start", null);
+    JsonNode attempts = json(client.get("/api/v1/rounds/" + tieRoundId + "/attempts"));
+    judgeOk(client, findAttemptIdForEntrant(attempts, entrantA), 10000);
+    judgeOk(client, findAttemptIdForEntrant(attempts, entrantB), 10000);
+    client.post("/api/v1/rounds/" + tieRoundId + "/review", null);
+    client.post("/api/v1/rounds/" + tieRoundId + "/close", null);
+    createRound(client, eventId, 2, "Round 2", "BO1");
+
+    client.post("/api/v1/rounds/" + tieRoundId + "/advancement/tie-break", null);
+    JsonNode attemptsAfterTieBreak = json(client.get("/api/v1/rounds/" + tieRoundId + "/attempts"));
+    String tieBreakAttemptA = findTieBreakAttemptId(attemptsAfterTieBreak, entrantA, 2);
+    String tieBreakAttemptB = findTieBreakAttemptId(attemptsAfterTieBreak, entrantB, 2);
+
+    // A is judged DNF first; B is judged OK afterward with a (hypothetically) "worse" time than
+    // A would have posted — DNF must still lose regardless of recording order or hypothetical time.
+    long versionA = currentAttemptVersion(client, tieBreakAttemptA);
+    ResponseEntity<String> dnfResponse =
+        client.put(
+            "/api/v1/attempts/" + tieBreakAttemptA + "/judge-result",
+            Map.of("status", "DNF", "expectedVersion", versionA));
+    assertThat(dnfResponse.getStatusCode().value()).isEqualTo(200);
+    judgeOk(client, tieBreakAttemptB, 15000);
+
+    JsonNode resolvedPreview =
+        json(client.post("/api/v1/rounds/" + tieRoundId + "/advancement/preview", null));
+    assertThat(resolvedPreview.get("tieBreakRequired").asBoolean()).isFalse();
+    assertThat(resolvedPreview.get("advancing")).hasSize(1);
+    assertThat(resolvedPreview.get("advancing").get(0).get("entrantId").asText())
+        .isEqualTo(entrantB);
+  }
+
+  /** 09: "...then shared advancement if still tied." Identical tie-break times share the slot. */
+  @Test
+  void tieBreakStillTiedAfterTheExtraAttemptSharesAdvancement() throws Exception {
+    String orgId = registerVerifyAndCreateOrg(client, "tb5@example.com", "Owner5", "TB Org 5");
+    String eventId = createEvent(client, orgId, "TB Event 5", "PHYSICAL_JUDGE");
+    String tieRoundId = createRoundWithTiePolicy(eventId, 1, "TOP_N", 1, "TIE_BREAK_ATTEMPT");
+    String joinCode = openRegistration(client, eventId);
+    TestApiClient guestA = new TestApiClient(restTemplate);
+    String entrantA = joinAsGuest(guestA, joinCode, "TB5 Entrant A");
+    TestApiClient guestB = new TestApiClient(restTemplate);
+    String entrantB = joinAsGuest(guestB, joinCode, "TB5 Entrant B");
+
+    client.post("/api/v1/rounds/" + tieRoundId + "/prepare", null);
+    client.post("/api/v1/rounds/" + tieRoundId + "/ready", null);
+    client.post("/api/v1/rounds/" + tieRoundId + "/start", null);
+    JsonNode attempts = json(client.get("/api/v1/rounds/" + tieRoundId + "/attempts"));
+    judgeOk(client, findAttemptIdForEntrant(attempts, entrantA), 10000);
+    judgeOk(client, findAttemptIdForEntrant(attempts, entrantB), 10000);
+    client.post("/api/v1/rounds/" + tieRoundId + "/review", null);
+    client.post("/api/v1/rounds/" + tieRoundId + "/close", null);
+    createRound(client, eventId, 2, "Round 2", "BO1");
+
+    client.post("/api/v1/rounds/" + tieRoundId + "/advancement/tie-break", null);
+    JsonNode attemptsAfterTieBreak = json(client.get("/api/v1/rounds/" + tieRoundId + "/attempts"));
+    String tieBreakAttemptA = findTieBreakAttemptId(attemptsAfterTieBreak, entrantA, 2);
+    String tieBreakAttemptB = findTieBreakAttemptId(attemptsAfterTieBreak, entrantB, 2);
+    // Still an exact tie after the tie-break attempt itself — both advance together.
+    judgeOk(client, tieBreakAttemptA, 7000);
+    judgeOk(client, tieBreakAttemptB, 7000);
+
+    JsonNode resolvedPreview =
+        json(client.post("/api/v1/rounds/" + tieRoundId + "/advancement/preview", null));
+    assertThat(resolvedPreview.get("tieBreakRequired").asBoolean()).isFalse();
+    Set<String> advancingEntrantIds = new java.util.HashSet<>();
+    for (JsonNode a : resolvedPreview.get("advancing")) {
+      advancingEntrantIds.add(a.get("entrantId").asText());
+    }
+    assertThat(advancingEntrantIds).containsExactlyInAnyOrder(entrantA, entrantB);
   }
 
   private String createRoundWithTiePolicy(
