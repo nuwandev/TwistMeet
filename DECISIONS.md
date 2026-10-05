@@ -4,6 +4,22 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
+## Status: V1 audit pass complete — gap closure before M6
+
+A post-M5 requirement-by-requirement re-audit against `00` §2 and `07`/`08`/`09` found that
+several items the M4/M5 reports had marked "Built" understated a real gap, and that several M5
+"deferred" items were actually V1 must-ship scope, not legitimate deferrals. All were closed in
+this pass: the scramble reveal authorization boundary (assigned scrambler/judge only, not any
+org member), production fail-fast for a missing/invalid scramble encryption key, event
+clone/archive/complete/reopen, the organizer-selected tie-break attempt, the competitor
+help/request-judge flow, public name masking (API and web UI), and real-time room updates over
+SSE. See "V1 audit pass implementation decisions" below for the full list, the exact contract
+language each closure is grounded in, and what remains genuinely deferred to M6/launch review
+(S12's dedicated tabs, retention-policy deletion, password reset/MFA, org invite endpoints, an
+`Idempotency-Key` header, cursor pagination, a groups/stations model). TNoodle's GPL-3.0
+SaaS-vs-distribution licensing question (OD01 resolution, below) remains an explicit open
+launch-review item — not resolved by this pass, not silently dropped.
+
 ## Status: M5 complete — Advancement, publishing, public display, history, export
 
 M0–M4 are complete and recorded below unchanged (M4's scramble-secrecy verification gap — error
@@ -17,7 +33,9 @@ distribution licensing question (OD01 resolution, below) remains an explicit ope
 item — not resolved by this milestone, not silently dropped, and the generator/its license were
 not touched. See "M5 implementation decisions" below for the full list and what remains deferred
 (the optional tie-break attempt, a `PublicSnapshot` cache table, public name masking, advancement
-rollback, S12's dedicated tabs, S14's copy-event/retention-deletion).
+rollback, S12's dedicated tabs, S14's copy-event/retention-deletion) — **note: the tie-break
+attempt, public name masking, and S12's dedicated tabs status were superseded by the V1 audit
+pass above; the tabs remain deferred but the first two are now built.**
 
 ## Status: M4 complete — Scramble controls and the 3D move guide
 
@@ -1097,6 +1115,267 @@ this pass: no license or generator change was made, and no legal-approval claim 
 Exposes the `AuditEvent` rows every milestone since M1 has recorded via `AuditService` but never
 had a read endpoint for. Organizer-only, matching `08`'s "owner/organizer restricted." Tested in
 `HistoryExportFlowTest.auditEndpointIsOrganizerOnlyAndListsRecordedActions`.
+
+## V1 audit pass implementation decisions
+
+A dedicated re-audit, run before starting M6, against every `00` §2 "must ship" item and every
+applicable `07`/`08`/`09` requirement — not trusting a prior milestone's "Built" label without
+checking the actual code and tests. Found and closed the following genuine V1 gaps.
+
+### Scramble reveal authorization boundary
+
+M4's own notes had `reveal`/`officialView`/`print` granted to *any* organization member acting as
+organizer, via the same `requireScrambleStaff` check used for metadata-only preparation actions
+(`listForRound`, `markApplied`, `markChecked`). `00` §7.1 is explicit and exclusive: scramble
+notation is "revealed only to assigned scrambler/judge." `00` §5's own role enumeration backs
+this reading — Judge's "assigned event attempt entry/status" and Scrambler's "assigned scramble"
+are both scoped to an explicit per-event assignment, and Organizer's list conspicuously has no
+scramble-reveal line at all, unlike its "full event configuration and event administration...
+approve correction." Taken together, this is a specific, exclusive rule that overrides the
+broader org-wide pattern used for every other staff check in `TenantAccessService` — so it was
+not treated as an intended, broader-than-written behavior.
+
+Added `TenantAccessService.requireAssignedScrambleStaff(Event, UUID)`: grants access only to an
+explicit `EventRole.JUDGE` or `EventRole.SCRAMBLER` assignment on that exact event, never via
+organization membership alone (unlike every other `require*` method in that class). Switched
+`ScrambleService.reveal()`/`.officialView()`/`.print()` — the three methods that actually return
+plaintext notation — to it; `listForRound`/`markApplied`/`markChecked` (metadata only, no
+notation) correctly keep the broader `requireScrambleStaff` check. An organizer who wants reveal
+access must self-assign (or be assigned) JUDGE/SCRAMBLER for the event, same as anyone else — the
+web scramble-station page now offers a one-click "Assign myself as Scrambler" action when it gets
+a 403 for exactly this reason, so this isn't a dead end for a solo organizer running their own
+event. Tested in
+`ScrambleSecurityGapTest.onlyAnExplicitlyAssignedScramblerOrJudgeCanRevealNotJustAnyOrgMember`
+(unassigned owner 403 on reveal/view/print but 200 on metadata-only list; self-assigned owner,
+and a separately-assigned judge, 200; competitor guest 401/403/404; stranger 404).
+
+### Production scramble-key fail-fast
+
+`04` requires production to never run with a missing or silently-regenerated secret. The
+existing `ScrambleEncryptionService` fell back to an ephemeral, process-local AES key whenever
+`TWISTMEET_SCRAMBLE_ENCRYPTION_KEY` was unset — fine for local dev/test (an ephemeral key there is
+harmless and keeps the barrier to running the app low), but in production that fallback would
+silently encrypt real competition scramble data under a key that disappears on the next restart
+or rolling deploy, permanently destroying access to it with no error at write time.
+
+`ScrambleEncryptionService` now injects Spring's `Environment` and checks
+`environment.acceptsProfiles(Profiles.of("production"))`. If the `production` profile is active
+and the key is absent, blank, or not valid Base64, it throws `IllegalStateException` at startup
+with a message naming the exact environment variable, its expected shape (32 random bytes,
+Base64), and that it should come from the platform secret manager — the application refuses to
+start rather than ever accepting scramble writes under a fallback key in that profile. Every
+other profile (dev, test) keeps the ephemeral fallback, with its existing warning log, unchanged.
+A new, intentionally empty `application-production.yml` exists only so Spring recognizes the
+profile name for this check — real secrets still only ever come from environment injection, never
+a committed file. Tested in `ScrambleEncryptionServiceTest` (`productionProfileWithNoKeyRefusesToStart`,
+`productionProfileWithAValidKeyStartsNormally`,
+`nonProductionProfileWithNoKeyStillFallsBackToAnEphemeralKey`) using Spring's `MockEnvironment`
+rather than a full Spring context, since only the profile-gated branch needed exercising.
+
+### Event clone, archive, complete, reopen
+
+`00` §6 names a full event lifecycle through `COMPLETED`/`ARCHIVED`, and `07` S04/S14 name
+"duplicate event," "archive," and archived-read-only behavior — none of which existed; `Event`
+could reach `REGISTRATION_LOCKED` and then nowhere else, and nothing ever rejected a write to an
+archived event because nothing could reach `ARCHIVED` in the first place.
+
+- `EventService.complete(eventId, actorUserId)`: organizer-only, idempotent if already
+  `COMPLETED`, requires every round `CLOSED` (and at least one round to exist) else `409` —
+  driven off round-level state, which is what every other screen/endpoint already reads, rather
+  than retrofitting the long-unused `READY`/`LIVE` event states (see the M5-era note on this in
+  the class's own Javadoc).
+- `EventService.archive(eventId, actorUserId)`: organizer-only, from `DRAFT`,
+  `REGISTRATION_OPEN`, `REGISTRATION_LOCKED`, or `COMPLETED`; sets `ARCHIVED`.
+- `EventService.reopen(eventId, actorUserId, reason)`: organizer-only, only from `COMPLETED`,
+  requires a reason (`07`'s "reopenable... with actor/reason"); sets `REGISTRATION_LOCKED` so
+  corrections can be made through the existing correction flow rather than a new mechanism.
+- `EventService.clone(eventId, actorUserId)`: any staff role, copies `name` (+" (copy)"),
+  `description`, `startsAt`, `timezone`, `venueLabel`, `visibility`, `timerMode`,
+  `scramblePolicy` into a fresh `DRAFT` event with a new join code — deliberately **not**
+  entrants, rounds, or attempts, matching "duplicate event" (a template copy), not "clone this
+  exact competition's results."
+- A `requireNotArchived(Event)` guard was added to every mutating event/round method
+  (`EventService.update/publish/transition`; `RoundService.create/update/prepare/transition/
+  togglePause/review/close`) so "archived read-only" (R32) is actually enforced everywhere, not
+  just conceptually true. Reads, CSV export, and audit history remain available on an archived
+  event — "read-only," not "inaccessible."
+- Each transition is audited (`EVENT_COMPLETED`/`EVENT_ARCHIVED`/`EVENT_REOPENED`/`EVENT_CLONED`)
+  and the web event page gained a "Lifecycle, clone, and archive" section with a `ConfirmDialog`
+  on archive (citing `00` §6) since it is the one action here with no "undo."
+
+Tested in `EventArchiveCloneTest` (complete requires every round closed; archived read-only
+except allowed actions; clone copies config, not entrants/rounds; organizer-only, not a stranger).
+
+### Organizer-selected tie-break attempt
+
+`09`: "If organizer selected a tie-break attempt, show the tied names and create a special
+one-attempt attempt with an unused scramble; winner policy is the lower valid time, DNF last,
+then shared advancement if still tied. This option must be selected before registration opens."
+M5 had deferred this entirely, defaulting every boundary tie to shared advancement — correct as
+the *default* per `09` itself, but not when the organizer explicitly opted into the tie-break
+policy, which is V1 scope, not an extra.
+
+- `RoundService.validateTiePolicy` rejects `TiePolicy.TIE_BREAK_ATTEMPT` once the event has left
+  `DRAFT` (i.e. once registration has opened), on both round create and update, matching "must be
+  selected before registration opens" literally.
+- `AdvancementService.computePreview` now separates each entrant's attempts into the round's
+  *main* attempts (`attemptNumber <= format.attemptCount()`) and everything beyond that; only the
+  main attempts feed `ScoringEngine`/`RankingService`, so a tie-break attempt can never corrupt
+  the primary ranking it exists to resolve. When a boundary tie is detected under
+  `TIE_BREAK_ATTEMPT`, the preview reports `tieBreakRequired`/`tiedPendingResolution` and
+  withholds the tied entrants from `advancing` until their tie-break attempts are judged; once
+  judged, the winner is the lower valid time (DNF ranked last; an exact tie or all-DNF falls back
+  to shared advancement among those still tied) — exactly the specified policy. `commit()`
+  refuses with `409` while a tie-break is still pending, rather than silently advancing a stale
+  preview.
+- `AdvancementService.createTieBreakAttempts` (new endpoint, `POST
+  /rounds/{roundId}/advancement/tie-break`) creates one extra judged attempt per currently-tied
+  entrant, numbered deterministically at `format.attemptCount() + 1` — a fixed number, always
+  beyond the format's own attempt count, so later logic can tell a tie-break attempt from a
+  regular one with a simple comparison rather than a new flag or table. Assigns a scramble if the
+  round has a scramble batch; idempotent per entrant (repeat calls before any result is recorded
+  are a no-op for an entrant who already has one).
+- `AttemptService.recordJudgeResult`'s "round must not be CLOSED" guard is now attempt-number-
+  aware: a regular attempt is still fully protected once its round closes, but a tie-break
+  attempt — which by construction is only ever created *after* the round has reached REVIEW/
+  CLOSED, since that's when a boundary tie first surfaces during advancement preview — can still
+  be judged. Without this, there would be no way to ever record the tie-break result at all.
+- The default (`TiePolicy.SHARED_RANK`) is completely unchanged: a boundary tie advances together
+  with no extra attempt, exactly as before and as `09` names as the default.
+
+Tested in `TieBreakAttemptTest` (`tiePolicyMustBeSelectedBeforeRegistrationOpens`; a full
+boundary-tie → blocked-commit → tie-break-attempt-created → judged → resolved-preview →
+successful-commit flow for a 3-entrant TOP_N=1 round).
+
+### Competitor help/request-judge flow
+
+`00` §2 item 8 and `07` P05 name "request help/correction" as two distinct competitor actions;
+`02`'s correction-request flow (contesting an already-recorded result) existed, but nothing
+covered a competitor flagging a problem — timer issue, scrambling help, a general question —
+*before* any result exists, which is the scenario a correction request's own precondition
+(`attempt.resultStatus != PENDING`) explicitly cannot serve.
+
+Added a new `help` package: `HelpRequest` (states `PENDING`/`RESOLVED`, idempotent `resolve()`),
+`HelpRequestService.create()` (guest-authenticated via the existing `GuestAuthResolver`, requires
+the attempt still be `PENDING` else `409` with a message pointing the caller at a correction
+request instead, and is itself idempotent — repeatedly tapping "Request help" returns the
+existing `PENDING` request rather than flooding the staff queue with duplicates),
+`.listForEvent()` (judge/organizer), `.resolve()` (judge/organizer, audited). New endpoints:
+`POST /attempts/{attemptId}/help-requests`, `GET /events/{eventId}/help-requests?state=`, `POST
+/help-requests/{helpRequestId}/resolve`. Web: a "Request judge / help" button on the competitor
+attempt page (shown only while the attempt is still `PENDING`, not once a result exists — the
+same precondition the API enforces) and a "Help requests" queue on the staff corrections page
+with a "Mark resolved" action, both using the existing real-time channel (below) to stay current.
+
+Tested in `HelpRequestAndNameMaskTest` (create-and-resolve happy path; rejected once a result is
+recorded; idempotent repeat create; only the owning competitor can request help for their own
+attempt, not another entrant's).
+
+### Public name masking
+
+`07` S12 names a "Public name masking option" with no further spec for its shape; `08` doesn't
+mention it as a separate field. Added the minimal shape that satisfies the stated behavior:
+`Event.publicNameMask` (boolean, default `false`), `EventService.setPublicNameMask()` (organizer-
+only, blocked on an archived event), `POST /events/{eventId}/public-name-mask`. When enabled,
+`PublicDisplayService.getStandings()` substitutes `"Competitor " + rank` for the real
+`displayName` on the public standings view — real names are still used on every authorized staff
+view, since the masking is specifically a *public*-display privacy control, not a data-removal
+one. The web `EventView` type didn't carry the field at all in an earlier pass of this same
+audit (caught by this pass's own type-check before it ever reached a commit) — added, along with
+a checkbox in the event page's existing "Publishing" section rather than a new dedicated screen
+(same consolidation pattern as the rest of S12 — see TRACEABILITY.md's S12 row). Tested in
+`HelpRequestAndNameMaskTest.publicNameMaskHidesRealDisplayNames`.
+
+### Real-time room updates (SSE)
+
+`08` "Real-time updates": "Use SSE or WebSocket with authenticated, event-scoped subscriptions.
+Initial snapshot comes from REST; updates contain `{eventId, eventVersion, eventType, resourceId,
+changedFields, occurredAt}` and no scramble text. Client reconnects with last event ID or
+refetches snapshot. Public channel emits only published fields." This had never been built at
+all — Tournament Control (`07` S08, which explicitly requires a "connection state" indicator) and
+the public scoreboard only ever refreshed on user action. Because nothing resembling polling
+existed either, there was no risk of treating polling as a silent substitute; the gap was simply
+closed with the real thing.
+
+- **SSE over WebSocket**: the contract explicitly allows either. Spring MVC's `SseEmitter`
+  needs no new protocol, framing, or client library — it rides the existing HTTPS/cookie-session
+  stack exactly like every other endpoint, and the browser's native `EventSource` handles
+  reconnection with backoff for free. A WebSocket would need a new handshake path through
+  `SecurityConfig`, a separate client abstraction on the web side, and buys nothing this product
+  needs (no bidirectional client-to-server messaging over the socket is required anywhere).
+- **In-process pub/sub, not a shared broker.** `00` §10 deploys the API as one product with one
+  instance per environment; there is no multi-instance fan-out requirement in V1. `EventStreamService`
+  keeps an in-memory `Map<eventId, List<SseEmitter>>` (and a second one keyed by `publicSlug` for
+  the public channel), broadcast off the request thread via a small dedicated executor so a slow
+  subscriber can never block a mutation's own request. A future horizontally-scaled deployment
+  would need to replace this with a shared broker (Redis pub/sub, etc.) — noted here so it isn't
+  rediscovered as a surprise later, not attempted now since it isn't required yet.
+- **Authorization**: `GET /events/{eventId}/stream` requires the same anti-enumeration check as
+  every other event-scoped read (`TenantAccessService.resolveStaffRole` — 404 for a stranger,
+  200 for any recognized staff relationship), matching "authenticated, event-scoped
+  subscriptions." `GET /public/events/{publicSlug}/stream` requires only that the event be
+  currently published, identical to `PublicController`'s own boundary — unauthenticated by
+  design, same as the rest of `/public/**`.
+- **No scramble text, ever, by construction**: callers of `EventStreamService.publish()` pass
+  only a `Set<String>` of changed field *names*, never a value, so there is no code path by which
+  scramble notation (or any other field value) could end up on the wire. The public copy of the
+  envelope additionally drops `resourceId`/`changedFields` entirely, carrying only
+  `{eventVersion, eventType, occurredAt}` — "public channel emits only published fields" read as
+  "don't even describe what staff-only field changed," not just "don't send its value."
+  Wired into every state change these two screens need to see live: round transitions
+  (ready/start/pause/resume/review/close), judge and self-timed attempt results, advancement
+  commit and tie-break-attempt creation, correction request/decision, help request create/
+  resolve, and event publish/unpublish.
+- **Reconnect strategy**: "last event ID or refetches snapshot" — implemented as the second
+  branch. The server sets an SSE `id` (a per-event monotonic sequence number) on every message,
+  but there is no server-side replay buffer keyed by it; instead, the web `useEventStream`/
+  `usePublicEventStream` hooks call back into the page's own REST loader on open, on every
+  reconnect, and on every message, so the client is always reconciling against a fresh snapshot
+  rather than trusting (or needing to replay) anything carried on the stream itself. This avoids
+  needing a server-side event log for V1's scale, at the cost of a full refetch per reconnect
+  rather than a precise resume — an acceptable trade recorded here rather than silently assumed
+  equivalent.
+- **Rate limiting / unsubscribe-on-scope-change**: "unsubscribe on scope change/logout" is
+  satisfied by the browser's own `EventSource` lifecycle — the web hooks close the connection in
+  their effect cleanup on unmount or when the subscribed `eventId`/`publicSlug` changes. Explicit
+  per-connection *rate limiting* of new subscriptions (beyond the existing per-IP
+  `SimpleRateLimiter` already protecting other endpoints) was not separately implemented —
+  genuinely deferred, not silently dropped, since a pilot-scale deployment (one instance, a
+  known small number of staff/spectators per event) has no realistic subscription-flood
+  exposure yet; revisit before a larger public launch.
+
+Tested in `EventStreamTest` (staff channel opens and sends its initial "connected" comment for a
+recognized staff relationship, 404 for a stranger; public channel 404 for an unpublished/unknown
+slug, opens once published) — using a raw `java.net.http.HttpClient` reading only that first
+line before disconnecting, since the connection is intentionally left open and a blocking test
+client would otherwise hang waiting for a body that never ends.
+
+### Genuinely deferred, not silently skipped
+
+Found during this audit but judged to be M6/launch-review scope, not V1 "must ship," and recorded
+here rather than invented or quietly ignored:
+
+- **S12's dedicated live/unpublished/published/revisions tabs** — a UI-consolidation deferral,
+  not a missing capability: every view and action those tabs would hold (publish state, live vs.
+  published standings, revision history via the existing Correction queue and judge-entry undo)
+  is already reachable from existing pages.
+- **Retention-policy deletion** (`07` S14) — pending the M6 data-export/deletion work this same
+  task asks for next; doing it twice, once ad hoc here and once properly for M6, would waste
+  effort.
+- **Password reset / MFA** — flagged by the audit as needed before any public beta, but neither
+  `00` §2 nor the V1 screen/API specs name it as V1 scope; it belongs with the M6 security review
+  this task's Part 2 asks for.
+- **Org member invite/role management endpoints** (`GET members`, `POST invitations`, `PATCH
+  members/{userId}`) — `08` lists these, but no V1 screen spec or acceptance item actually
+  exercises them (every M1-M5 test creates org membership via the registration/creation flow, not
+  an invite); a real but lower-priority API-completeness gap, not a blocked user journey.
+- **`Idempotency-Key` header mechanism** — `08`'s own idempotency guarantee is satisfied per-
+  endpoint today (version checks, "already done" markers, idempotent re-POSTs), without a generic
+  header; a dedicated mechanism would be a hardening improvement, not a closed gap.
+- **Cursor pagination** — every list endpoint returns a plain unpaginated list; fine at pilot
+  scale (one event's data at a time), a real scaling gap before a larger public launch.
+- **Groups/stations model** — no V1 screen spec exercises multi-station routing distinct from the
+  existing per-round, per-entrant attempt model; would be new scope, not a gap in existing scope.
 
 ## Deviations from documents
 
