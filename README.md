@@ -126,13 +126,18 @@ database you're fine seeing wiped repeatedly, not one with data you care about.
 `web/e2e/critical-journey.spec.ts` drives a full organizer+competitor golden path (register,
 verify email, create org/event, open registration, guest joins, run a round through to a judged
 result, confirm Tournament Control's live update and connection-state badge, close the round,
-check standings) through a real Chromium browser against the real running app — not mocked.
-**Not wired into CI yet** (see below for why); run it manually:
+check standings) through a real Chromium browser against the real running app — not mocked. It
+runs as its own `e2e` job in `.github/workflows/ci.yml`, separate from and additive to the
+existing `api`/`web` jobs (its own Postgres service, its own steps) so a flake here never blocks
+those two: it starts the dev-only mail catcher, boots the real API (`bootRun`) and a production
+build of the web app, waits for both to answer health checks, then runs the spec. To run it
+locally the same way:
 
 ```bash
-# 1. Start Postgres (the usual local/CI one), then the API and web dev servers:
+# 1. Start Postgres (the usual local/CI one), then the API and web app (build+start matches CI
+#    more closely than `npm run dev`, but dev works too for local iteration):
 cd api && ./gradlew bootRun &
-cd web && npm run dev &
+cd web && npm run build && npm run start &
 
 # 2. Start the dev-only mail catcher (reads the verification link SmtpMailService actually sends,
 #    since there's no mailbox to check otherwise):
@@ -144,10 +149,9 @@ cd web && npx playwright test
 
 This needs Chromium (`npx playwright install chromium` if you don't already have one Playwright
 can find) and `@playwright/test`/`@axe-core/playwright` (`npm install`, already in
-`package.json`). Not yet added to `.github/workflows/ci.yml`: wiring it in needs the workflow to
-also start the mail catcher and both dev servers and wait for them to be ready, which is real
-additional CI-infrastructure work beyond this test's own scope — tracked as a follow-up, not
-silently skipped.
+`package.json`). `mailcatcher.py` uses the standard library's `smtpd` module, removed in Python
+3.12 — the CI job pins Python 3.11 for this reason (see the `e2e` job's own comment); use 3.11
+locally too, or swap to `aiosmtpd` if 3.11 ever becomes impractical to keep around.
 
 ## What's implemented vs. planned
 
