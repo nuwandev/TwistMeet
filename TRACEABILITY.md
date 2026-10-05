@@ -484,3 +484,35 @@ narrative intent becomes testable.
   behavior, but S14's retention-policy deletion remains unbuilt pending the M6 data-retention work;
   password reset/MFA; org member invite/role management endpoints; an `Idempotency-Key` header
   mechanism; cursor pagination; a groups/stations model.
+- **M6 (reliability, privacy, accessibility, pilot readiness) — same session, after the V1 audit
+  pass above.** Four new top-level review/runbook documents, each with evidence rather than a
+  checklist ticked from memory: `OPERATIONS.md` (a real `pg_dump`/`pg_restore` backup/restore
+  drill run and verified byte-for-byte this session; the existing actuator-health/audit-logging
+  monitoring surface and what's missing; incident procedures for scramble exposure, event outage,
+  and migration failure; named launch blockers needing a human decision — hosting/domain,
+  production email, error-tracking vendor, support owner, pilot concurrency, legal jurisdiction,
+  translations); `SECURITY_PRIVACY_REVIEW.md` (12's full security/privacy checklist item by item;
+  found and fixed a real gap — the session/CSRF cookies had neither `Secure` nor `SameSite` set
+  despite `SecurityConfig`'s own comment claiming otherwise, now fixed under the production
+  profile and tested in `SecurityCookieAttributesTest`; named MFA, password recovery, personal
+  data export, and retention/deletion as genuine launch blockers rather than built hastily);
+  `ACCESSIBILITY_REVIEW.md` (a real `@axe-core/playwright` scan against five real, data-populated
+  pages — found and fixed one critical violation, a `<select>` with no accessible name on the
+  event settings page; verified no 360px overflow, no meaningful motion to suppress, and no
+  color-contrast violations; found and fixed a missing `aria-live` announcement on Tournament
+  Control's live progress summary; honestly flagged 200%-zoom and keyboard-focus-visibility as
+  not conclusively tested by this pass's automated proxies, and screen-reader verification of the
+  new announcement as still not done with an actual screen reader); `PILOT_CHECKLIST.md` (a
+  role-by-role event-day checklist citing the exact screen/action per item). Also closed two
+  process gaps the original task's instructions named directly: a printable offline score sheet
+  (`rounds/[roundId]/print-sheet`, row added to S08/00 §2 item 12 coverage) for `00` §2 item 12's
+  "offline paper fallback," and a real, committed browser E2E test
+  (`web/e2e/critical-journey.spec.ts`, run and verified passing multiple times this session) for
+  "browser E2E for critical role journeys" — the TRACEABILITY rows above that cite
+  `m3_e2e_organizer.mjs`/`m5_e2e.mjs`/etc. as evidence are citing real manual verification runs
+  from earlier milestones, but those scripts were only ever written to a session scratchpad, not
+  committed to this repository, so they were never a regression-tested or CI-capable asset — a
+  gap this session's E2E test closes for the one journey it covers (not retroactively for every
+  milestone's own ad hoc script, which would be a much larger undertaking than this pass's
+  scope). Not wired into `.github/workflows/ci.yml` yet (needs the workflow to also start a mail
+  catcher and both dev servers) — recorded as a follow-up in README, not silently assumed done.
