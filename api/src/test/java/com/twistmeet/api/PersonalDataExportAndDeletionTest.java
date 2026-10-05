@@ -42,19 +42,15 @@ class PersonalDataExportAndDeletionTest extends AbstractIntegrationTest {
 
     ResponseEntity<String> first = client.post("/api/v1/me/deletion-request", null);
     assertThat(first.getStatusCode().value()).isEqualTo(200);
-    // Postgres TIMESTAMPTZ only keeps microsecond precision, so compare at that granularity
-    // rather than the raw string (the first, pre-persist response carries full Instant.now()
-    // nanosecond precision; re-reads from the database are rounded to microseconds).
-    java.time.Instant firstTimestamp =
-        java.time.Instant.parse(json(first).get("deletionRequestedAt").asText())
-            .truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-    assertThat(firstTimestamp).isNotNull();
+    assertThat(json(first).get("deletionRequestedAt").asText()).isNotNull();
+
+    // Compare two post-persist reads (not the first write's in-memory, pre-round-trip value
+    // against a later one) since Postgres TIMESTAMPTZ rounds to microsecond precision on write —
+    // comparing a full-nanosecond in-memory Instant against a rounded one is flaky.
+    String afterFirstRequest = json(client.get("/api/v1/me")).get("deletionRequestedAt").asText();
 
     ResponseEntity<String> second = client.post("/api/v1/me/deletion-request", null);
-    java.time.Instant secondTimestamp =
-        java.time.Instant.parse(json(second).get("deletionRequestedAt").asText())
-            .truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-    assertThat(secondTimestamp).isEqualTo(firstTimestamp);
+    assertThat(json(second).get("deletionRequestedAt").asText()).isEqualTo(afterFirstRequest);
 
     // The account is untouched: still able to export data and read /me normally.
     ResponseEntity<String> me = client.get("/api/v1/me");
