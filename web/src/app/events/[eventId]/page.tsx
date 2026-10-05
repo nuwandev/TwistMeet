@@ -297,6 +297,20 @@ export default function EventDetailPage() {
             Unpublish (hide / revoke link)
           </button>
         </div>
+        {/* 07 S12 "Public name masking option" */}
+        <label style={{ display: "flex", alignItems: "center", gap: "var(--space-1)", marginTop: "var(--space-2)" }}>
+          <input
+            type="checkbox"
+            checked={event.publicNameMask}
+            disabled={busy}
+            onChange={(e) =>
+              runAction(`/api/v1/events/${eventId}/public-name-mask`, "POST", {
+                masked: e.target.checked,
+              })
+            }
+          />
+          Mask competitor names on the public display (show &quot;Competitor N&quot; instead)
+        </label>
       </section>
 
       <section className="card">

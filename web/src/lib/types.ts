@@ -47,6 +47,7 @@ export type EventView = {
   rulesetSnapshot: string | null;
   publishedAt: string | null;
   publicSlug: string | null;
+  publicNameMask: boolean;
   createdAt: string;
   version: number;
 };
