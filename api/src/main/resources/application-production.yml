@@ -1,0 +1,7 @@
+# Activated with SPRING_PROFILES_ACTIVE=production (or --spring.profiles.active=production).
+# This file intentionally sets nothing new — its only job is to exist, so Spring recognizes the
+# "production" profile name and ScrambleEncryptionService's fail-fast check
+# (environment.acceptsProfiles(Profiles.of("production"))) can gate on it. Real production
+# configuration (DB URL, mail provider, the encryption key itself) still comes from environment
+# variables per 00 §10 "store secrets in platform secret manager/environment injection, never
+# commit" — never add secrets to this file.

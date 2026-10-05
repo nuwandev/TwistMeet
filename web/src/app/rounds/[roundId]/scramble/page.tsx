@@ -14,16 +14,21 @@ import {
 import { TwistyGuide } from "@/components/TwistyGuide";
 
 /**
- * 07 S07 Scramble preparation station. Role-scoped (organizer/judge/scrambler — enforced
- * server-side by ScrambleService.requireScrambleStaff; this page assumes the caller already
- * passed that check, since every request it makes re-checks it anyway). Never shown to
- * competitor roles, and the `ScrambleVisibilityBanner` warns staff themselves not to let a
- * competitor see this screen over their shoulder.
+ * 07 S07 Scramble preparation station. Batch/metadata actions (generate, list, mark-applied/
+ * checked) are organizer-wide (`TenantAccessService.requireScrambleStaff`); actually revealing
+ * notation (reveal/official-view/print) requires an explicit Scrambler/Judge assignment on this
+ * event per 00 §7 ("revealed only to assigned scrambler/judge") —
+ * `TenantAccessService.requireAssignedScrambleStaff`, stricter than organization membership
+ * alone. An Organizer who hits "not assigned" sees a one-click self-assign affordance below,
+ * since that's the documented, intentional path to gain reveal access, not a dead end. Never
+ * shown to competitor roles, and the `ScrambleVisibilityBanner` warns staff themselves not to let
+ * a competitor see this screen over their shoulder.
  */
 export default function ScramblePreparationStationPage() {
   const { roundId } = useParams<{ roundId: string }>();
   const [assignments, setAssignments] = useState<ScrambleAssignmentView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [needsAssignment, setNeedsAssignment] = useState(false);
   const [busy, setBusy] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, ScrambleRevealView>>({});
   const [spoilTarget, setSpoilTarget] = useState<ScrambleAssignmentView | null>(null);
@@ -76,9 +81,33 @@ export default function ScramblePreparationStationPage() {
         { method: "POST" },
       );
       setRevealed({ ...revealed, [assignment.id]: view });
+      setNeedsAssignment(false);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not reveal this scramble");
+      if (err instanceof ApiError && err.code === "FORBIDDEN") {
+        setNeedsAssignment(true);
+        setError("You are not assigned Scrambler/Judge for this event yet.");
+      } else {
+        setError(err instanceof ApiError ? err.message : "Could not reveal this scramble");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function assignMyselfAsScrambler() {
+    setBusy(true);
+    try {
+      const round = await apiFetch<{ eventId: string }>(`/api/v1/rounds/${roundId}`);
+      const me = await apiFetch<{ id: string }>(`/api/v1/me`);
+      await apiFetch(`/api/v1/events/${round.eventId}/staff-assignments`, {
+        method: "POST",
+        body: { userId: me.id, role: "SCRAMBLER" },
+      });
+      setNeedsAssignment(false);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not self-assign");
     } finally {
       setBusy(false);
     }
@@ -191,6 +220,11 @@ export default function ScramblePreparationStationPage() {
       </p>
       <h1>Scramble preparation station</h1>
       {error && <ErrorState message={error} onRetry={load} />}
+      {needsAssignment && (
+        <button className="button-primary" disabled={busy} onClick={assignMyselfAsScrambler}>
+          Assign myself as Scrambler for this event
+        </button>
+      )}
 
       {assignments.length === 0 ? (
         <EmptyState

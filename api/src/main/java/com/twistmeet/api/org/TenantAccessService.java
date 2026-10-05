@@ -137,6 +137,42 @@ public class TenantAccessService {
   }
 
   /**
+   * Notation-reveal authorization (00 §7: "revealed only to assigned scrambler/judge"; 00 §5's role
+   * list gives Organizer "full event configuration and event administration... approve correction"
+   * — scramble reveal is conspicuously absent from that enumeration, unlike Judge's "assigned event
+   * attempt entry/status" and Scrambler's "assigned scramble." Unlike {@link
+   * #requireScrambleStaff}, which legitimately gives any organization member (acting as Organizer)
+   * access to preparation-station metadata actions, this check deliberately does <b>not</b> grant
+   * access via organization membership alone: revealing the actual notation requires an explicit
+   * {@link EventRole#JUDGE} or {@link EventRole#SCRAMBLER} assignment on this specific event,
+   * exactly as the contract's exclusive "only to assigned scrambler/judge" language requires. An
+   * Owner/Organizer who wants to reveal scrambles must self-assign (or be assigned) one of those
+   * roles for the event, same as anyone else. Used only by {@code reveal}/{@code
+   * official-view}/{@code print} — the three actions that actually return plaintext notation;
+   * {@code markApplied}/{@code markChecked} carry no notation and keep using {@link
+   * #requireScrambleStaff}.
+   */
+  public void requireAssignedScrambleStaff(Event event, UUID userId) {
+    boolean isJudgeOrScrambler =
+        eventStaffAssignmentRepository.existsByEventIdAndUserIdAndRole(
+                event.getId(), userId, EventRole.JUDGE)
+            || eventStaffAssignmentRepository.existsByEventIdAndUserIdAndRole(
+                event.getId(), userId, EventRole.SCRAMBLER);
+    if (isJudgeOrScrambler) {
+      return;
+    }
+    boolean isMember =
+        membershipRepository
+            .findByOrganizationIdAndUserId(event.getOrganizationId(), userId)
+            .isPresent();
+    if (isMember
+        || eventStaffAssignmentRepository.existsByEventIdAndUserId(event.getId(), userId)) {
+      throw ApiException.forbidden("Assigned scrambler or judge access required");
+    }
+    throw ApiException.notFound("Event not found");
+  }
+
+  /**
    * Resolves which staff role the caller holds for this event (00 §5/§9: "Display role and event
    * scope visibly on staff pages" — the UI's {@code RoleBanner} needs this, and a judge who is not
    * an organization member cannot otherwise discover their own role, since every other

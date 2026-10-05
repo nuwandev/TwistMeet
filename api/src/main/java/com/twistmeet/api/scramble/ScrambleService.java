@@ -140,7 +140,7 @@ public class ScrambleService {
   public RevealView reveal(UUID assignmentId, UUID actorUserId) {
     ScrambleAssignment assignment = findAssignmentOrNotFound(assignmentId);
     Event event = eventForAssignment(assignment);
-    tenantAccessService.requireScrambleStaff(event, actorUserId);
+    tenantAccessService.requireAssignedScrambleStaff(event, actorUserId);
     if (assignment.getState() == ScrambleAssignmentState.VOIDED) {
       throw ApiException.invalidTransition("This scramble assignment has been voided");
     }
@@ -165,7 +165,7 @@ public class ScrambleService {
   public RevealView officialView(UUID assignmentId, UUID actorUserId) {
     ScrambleAssignment assignment = findAssignmentOrNotFound(assignmentId);
     Event event = eventForAssignment(assignment);
-    tenantAccessService.requireScrambleStaff(event, actorUserId);
+    tenantAccessService.requireAssignedScrambleStaff(event, actorUserId);
     if (!assignment.isRevealed()) {
       throw ApiException.scrambleNotAvailable("Reveal this assignment before viewing it");
     }
@@ -324,7 +324,7 @@ public class ScrambleService {
   public List<PrintEntry> print(UUID roundId, UUID actorUserId) {
     Round round = findRoundOrNotFound(roundId);
     Event event = findEventOrNotFound(round.getEventId());
-    tenantAccessService.requireScrambleStaff(event, actorUserId);
+    tenantAccessService.requireAssignedScrambleStaff(event, actorUserId);
     List<ScrambleAssignment> assignments =
         assignmentRepository.findByRoundId(roundId).stream()
             .filter(a -> a.getState() != ScrambleAssignmentState.VOIDED)

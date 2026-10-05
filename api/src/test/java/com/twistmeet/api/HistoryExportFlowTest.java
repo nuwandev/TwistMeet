@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.twistmeet.api.support.AbstractIntegrationTest;
 import com.twistmeet.api.support.TestApiClient;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import tools.jackson.databind.JsonNode;
@@ -80,6 +81,10 @@ class HistoryExportFlowTest extends AbstractIntegrationTest {
     String roundId = createRound(client, eventId, 1, "Final", "BO1");
     client.post("/api/v1/rounds/" + roundId + "/prepare", null);
     client.post("/api/v1/rounds/" + roundId + "/scramble-batches", null);
+    String ownerId4 = json(client.get("/api/v1/me")).get("id").asText();
+    client.post(
+        "/api/v1/events/" + eventId + "/staff-assignments",
+        Map.of("userId", ownerId4, "role", "SCRAMBLER"));
     String assignmentId =
         json(client.get("/api/v1/rounds/" + roundId + "/scramble-assignments"))
             .get(0)

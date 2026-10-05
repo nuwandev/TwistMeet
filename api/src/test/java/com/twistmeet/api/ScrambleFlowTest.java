@@ -30,6 +30,14 @@ class ScrambleFlowTest extends AbstractIntegrationTest {
     joinAsGuest(guest, joinCode, "Competitor " + emailSuffix);
     String roundId = createRound(client, eventId, 1, "Final", "AO5");
     client.post("/api/v1/rounds/" + roundId + "/prepare", null);
+    // Reveal/official-view/print now require an explicit JUDGE/SCRAMBLER assignment on this
+    // event (00 §7: "revealed only to assigned scrambler/judge") — org membership alone no
+    // longer suffices (see TenantAccessService.requireAssignedScrambleStaff). Most of this test
+    // file drives reveal/view/print directly as the org owner, so self-assign here once.
+    String ownerId = json(client.get("/api/v1/me")).get("id").asText();
+    client.post(
+        "/api/v1/events/" + eventId + "/staff-assignments",
+        Map.of("userId", ownerId, "role", "SCRAMBLER"));
     return roundId;
   }
 

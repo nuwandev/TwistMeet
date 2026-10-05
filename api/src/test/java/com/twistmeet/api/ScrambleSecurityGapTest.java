@@ -55,6 +55,12 @@ class ScrambleSecurityGapTest extends AbstractIntegrationTest {
     String roundId = createRound(client, eventId, 1, "Final", "BO1");
     client.post("/api/v1/rounds/" + roundId + "/prepare", null);
     client.post("/api/v1/rounds/" + roundId + "/scramble-batches", null);
+    // Reveal/official-view/print now require an explicit assignment, not just org membership
+    // (see TenantAccessService.requireAssignedScrambleStaff) — self-assign the owner.
+    String ownerId = json(client.get("/api/v1/me")).get("id").asText();
+    client.post(
+        "/api/v1/events/" + eventId + "/staff-assignments",
+        Map.of("userId", ownerId, "role", "SCRAMBLER"));
     return roundId;
   }
 
@@ -175,12 +181,18 @@ class ScrambleSecurityGapTest extends AbstractIntegrationTest {
     assertThat(print.getStatusCode().value()).isEqualTo(404);
   }
 
+  /**
+   * Corrected per explicit instruction: 00 §7 says a staff-prepared scramble is "revealed only to
+   * assigned scrambler/judge," and §5's Organizer role list conspicuously omits scramble reveal
+   * (unlike Judge's "assigned event attempt entry/status" and Scrambler's "assigned scramble") — so
+   * organization membership alone must NOT grant reveal access, even though it legitimately grants
+   * Organizer-level access to every other event-scoped action (round config, roster, batch
+   * creation, applied/checked marking). Full role matrix below: unassigned-same-org-owner/organizer
+   * -> 403; assigned Scrambler -> 200; assigned Judge -> 200; staff on a different event -> 404
+   * (covered above); competitor -> 401/403/404; stranger -> 404.
+   */
   @Test
-  void organizationMembershipGrantsRevealAcrossThatOrgsOtherEventsByDesign() throws Exception {
-    // Documents an intentional, not accidental, over-grant: an organization member is an
-    // Organizer for every event the org owns (TenantAccessService#requireOrganizer), including
-    // one they were never explicitly staffed on. This is existing M1-M4 tenant design, not new
-    // M5/M4 scope — asserted here so the behavior is pinned down rather than left ambiguous.
+  void onlyAnExplicitlyAssignedScramblerOrJudgeCanRevealNotJustAnyOrgMember() throws Exception {
     String orgId = registerVerifyAndCreateOrg(client, "secgap6@example.com", "Owner6", "Org 6");
     String eventA = createEvent(client, orgId, "Event A 6", "PHYSICAL_JUDGE");
     String joinCode = openRegistration(client, eventA);
@@ -194,10 +206,79 @@ class ScrambleSecurityGapTest extends AbstractIntegrationTest {
             .get(0)
             .get("id")
             .asText();
-    // Same org, acting on Event A's round while never explicitly assigned staff on Event A.
-    ResponseEntity<String> reveal =
-        client.post("/api/v1/scramble-assignments/" + assignmentId + "/reveal", null);
-    assertThat(reveal.getStatusCode().value()).isEqualTo(200);
+
+    // The owner is an org member (Organizer-equivalent) but was never explicitly assigned
+    // Scrambler/Judge for this event — reveal/official-view/print must all 403, not 200.
+    assertThat(
+            client
+                .post("/api/v1/scramble-assignments/" + assignmentId + "/reveal", null)
+                .getStatusCode()
+                .value())
+        .isEqualTo(403);
+    assertThat(
+            client
+                .get("/api/v1/scramble-assignments/" + assignmentId + "/official-view")
+                .getStatusCode()
+                .value())
+        .isEqualTo(403);
+    assertThat(
+            client
+                .get("/api/v1/rounds/" + roundId + "/scramble-assignments/print")
+                .getStatusCode()
+                .value())
+        .isEqualTo(403);
+
+    // Metadata-only actions (no notation) are unaffected — the owner still administers prep.
+    assertThat(
+            client
+                .get("/api/v1/rounds/" + roundId + "/scramble-assignments")
+                .getStatusCode()
+                .value())
+        .isEqualTo(200);
+
+    // Self-assigning as Scrambler grants reveal — the documented, intentional path.
+    String ownerId = json(client.get("/api/v1/me")).get("id").asText();
+    client.post(
+        "/api/v1/events/" + eventA + "/staff-assignments",
+        Map.of("userId", ownerId, "role", "SCRAMBLER"));
+    assertThat(
+            client
+                .post("/api/v1/scramble-assignments/" + assignmentId + "/reveal", null)
+                .getStatusCode()
+                .value())
+        .isEqualTo(200);
+
+    // A separately assigned Judge (event-scoped, not an org member at all) also gets reveal.
+    TestApiClient judgeClient = new TestApiClient(restTemplate);
+    ResponseEntity<String> judgeVerify =
+        registerAndVerify(
+            judgeClient, "secgap6judge@example.com", "Judge6", "correct-horse-battery");
+    String judgeUserId = json(judgeVerify).get("id").asText();
+    client.post(
+        "/api/v1/events/" + eventA + "/staff-assignments",
+        Map.of("userId", judgeUserId, "role", "JUDGE"));
+    assertThat(
+            judgeClient
+                .get("/api/v1/scramble-assignments/" + assignmentId + "/official-view")
+                .getStatusCode()
+                .value())
+        .isEqualTo(200);
+
+    // The competitor (guest credential, not a staff principal at all) still cannot reach it.
+    ResponseEntity<String> guestReveal =
+        guest.post("/api/v1/scramble-assignments/" + assignmentId + "/reveal", null);
+    assertThat(guestReveal.getStatusCode().value()).isIn(401, 403, 404);
+
+    // A total stranger gets 404, same anti-enumeration pattern as everywhere else.
+    TestApiClient stranger = new TestApiClient(restTemplate);
+    registerAndVerify(
+        stranger, "secgap6stranger@example.com", "Stranger6", "correct-horse-battery");
+    assertThat(
+            stranger
+                .post("/api/v1/scramble-assignments/" + assignmentId + "/reveal", null)
+                .getStatusCode()
+                .value())
+        .isEqualTo(404);
   }
 
   @Test
