@@ -182,6 +182,7 @@ export default function TournamentControlPage() {
           </button>
           <Link href={`/rounds/${liveRound.id}/judge`}>Open judge entry</Link>
           <Link href={`/rounds/${liveRound.id}/scramble`}>Scramble station</Link>
+          <Link href={`/rounds/${liveRound.id}/print-sheet`}>Print offline score sheet</Link>
           <Link href={`/events/${eventId}/corrections`}>Resolve requests ({helpRequested})</Link>
           <button
             className="button-primary"
