@@ -73,6 +73,23 @@ export default function WaitingRoomPage() {
   const [correctionDrafts, setCorrectionDrafts] = useState<Record<string, CorrectionDraft>>({});
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  async function handleExportMyData() {
+    try {
+      const data = await apiFetch<unknown>(`/api/v1/guest/events/${eventId}/me/export`);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "twistmeet-my-data.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      setExportError(null);
+    } catch (err) {
+      setExportError(err instanceof ApiError ? err.message : "Export failed");
+    }
+  }
 
   async function load() {
     try {
@@ -212,6 +229,12 @@ export default function WaitingRoomPage() {
       <StatusBadge tone={entrant.checkInState === "CHECKED_IN" ? "good" : "warn"}>
         {entrant.checkInState === "CHECKED_IN" ? "Checked in" : "Not checked in"}
       </StatusBadge>
+      <div style={{ marginTop: "var(--space-1)" }}>
+        <button type="button" onClick={handleExportMyData}>
+          Export my data
+        </button>
+      </div>
+      {exportError && <p className="error-text">{exportError}</p>}
 
       {!online && <OfflineState onRetry={load} />}
       {error && <ErrorState message={error} onRetry={load} />}

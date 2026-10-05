@@ -4,6 +4,24 @@ export type UserView = {
   displayName: string;
   emailVerified: boolean;
   createdAt: string;
+  deletionRequestedAt: string | null;
+};
+
+export type MyDataExport = {
+  profile: UserView;
+  organizationMemberships: {
+    organizationId: string;
+    organizationName: string;
+    role: string;
+    createdAt: string;
+  }[];
+  eventStaffAssignments: {
+    eventId: string;
+    eventName: string;
+    role: string;
+    assignedAt: string;
+  }[];
+  exportedAt: string;
 };
 
 // Deliberately generic — identical whether or not the email was already registered.

@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface EventStaffAssignmentRepository extends JpaRepository<EventStaffAssignment, UUID> {
   List<EventStaffAssignment> findByEventId(UUID eventId);
 
+  List<EventStaffAssignment> findByUserId(UUID userId);
+
   Optional<EventStaffAssignment> findByIdAndEventId(UUID id, UUID eventId);
 
   boolean existsByEventIdAndUserIdAndRole(UUID eventId, UUID userId, EventRole role);

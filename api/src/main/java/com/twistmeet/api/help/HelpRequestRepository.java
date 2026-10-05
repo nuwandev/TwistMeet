@@ -9,5 +9,7 @@ public interface HelpRequestRepository extends JpaRepository<HelpRequest, UUID> 
 
   List<HelpRequest> findByEventId(UUID eventId);
 
+  List<HelpRequest> findByEntrantId(UUID entrantId);
+
   boolean existsByAttemptIdAndState(UUID attemptId, HelpRequestState state);
 }

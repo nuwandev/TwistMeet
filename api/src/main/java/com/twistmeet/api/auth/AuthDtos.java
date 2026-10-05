@@ -33,14 +33,20 @@ public final class AuthDtos {
   public record RegistrationAccepted(String email, String message) {}
 
   public record UserView(
-      UUID id, String email, String displayName, boolean emailVerified, Instant createdAt) {
+      UUID id,
+      String email,
+      String displayName,
+      boolean emailVerified,
+      Instant createdAt,
+      Instant deletionRequestedAt) {
     public static UserView of(User user) {
       return new UserView(
           user.getId(),
           user.getEmail(),
           user.getDisplayName(),
           user.isEmailVerified(),
-          user.getCreatedAt());
+          user.getCreatedAt(),
+          user.getDeletionRequestedAt());
     }
   }
 }

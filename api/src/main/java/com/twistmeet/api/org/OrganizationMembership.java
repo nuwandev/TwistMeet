@@ -55,4 +55,8 @@ public class OrganizationMembership {
   public OrgRole getRole() {
     return role;
   }
+
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
 }

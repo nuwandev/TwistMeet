@@ -147,20 +147,23 @@ field value onto the wire.
   "Competitor N" for a competitor's real display name on the public scoreboard — the one
   public-display privacy control the specs name.
 - **Data export**: `GET /organizations/{orgId}/events/{eventId}/export.csv` exports event results
-  (organizer-only). There is **no personal-data export endpoint for an individual** (a competitor
-  or staff member asking "what data do you have about me") — this is the kind of subject-access
-  request a real privacy policy for a pilot in a GDPR-applicable jurisdiction would need to
-  support, and it does not exist today.
-- **Data deletion/retention**: **not implemented.** No endpoint deletes an entrant's data, a
-  user's account, or purges an event past a retention window. This was correctly identified by
-  the V1 audit pass as M6/launch-review scope, not V1 "must ship" (DECISIONS.md), and is restated
-  here because it is also a privacy-review blocker: a pilot cannot credibly tell participants
-  "you can ask us to delete your data" without a real mechanism behind that promise. Building this
-  safely (cascading deletion across orgs/events/entrants/attempts/audit history, deciding what
-  must be retained for dispute/audit purposes even after a deletion request) is real, scoped
-  work — not attempted in this pass given the risk of a rushed, under-tested destructive-data
-  feature, and flagged here explicitly as a launch blocker rather than built quickly to check a
-  box.
+  (organizer-only). As of this acceptance pass, a personal-data subject-access export also exists
+  for an individual asking "what data do you have about me": `GET /api/v1/me/export` (staff —
+  profile, organization memberships, event staff assignments) and
+  `GET /api/v1/guest/events/{eventId}/me/export` (competitor — entrant record, own attempts,
+  corrections and help requests they filed). Both return only data the caller could already read
+  through other endpoints; see `PrivacyService`/`PersonalDataExportAndDeletionTest`.
+- **Data deletion/retention**: **the policy-independent mechanism is now built; the retention
+  policy itself is still an open owner decision, tracked in `DATA_RETENTION_DECISIONS.md`.**
+  `POST /api/v1/me/deletion-request` lets a staff member record an idempotent deletion request
+  (`User.deletionRequestedAt`) without the app performing any automated deletion — no cascading
+  delete, no anonymization, nothing destructive happens automatically. Acting on the request (what
+  to delete or anonymize, after what retention window, how to preserve dispute/audit needs) is a
+  manual operator step once `DATA_RETENTION_DECISIONS.md`'s open decision is made. This was a
+  deliberate scope split from the earlier M6 pass's "not implemented" state: building a safe,
+  policy-independent *request* mechanism is low-risk and valuable now; inventing a retention
+  period or performing destructive deletion without a documented policy is not something this task
+  does unilaterally.
 - **Child-use policy**: no age-gating or parental-consent flow exists anywhere (registration asks
   only for email/display name). Whether this pilot's competitors include minors, and what that
   requires (COPPA in the US, GDPR-K in the EU, or similar depending on jurisdiction), is a legal/
@@ -194,8 +197,8 @@ decision to even scope correctly. Recorded as launch blockers, not attempted.
 | Dependency vulnerability scan | **Not run** — `npm audit` shows 5 high-severity, untriaged |
 | Secrets external to source control | **Verified** |
 | Public name masking | **Built this session** |
-| Personal data export | **Not implemented** — launch blocker |
-| Data retention/deletion | **Not implemented** — launch blocker, deliberately not rushed |
+| Personal data export | **Built this session** — `/api/v1/me/export` (staff), `/api/v1/guest/events/{eventId}/me/export` (competitor) |
+| Data retention/deletion | **Mechanism built this session** (idempotent deletion-request flag, no automated deletion); **retention policy itself is still an open owner decision** — see `DATA_RETENTION_DECISIONS.md` |
 | Child-use policy | **No policy exists** — jurisdiction-dependent, open |
 | Privacy notice / terms / cookie notice / subprocessors / security contact | **None exist** — launch blockers |
 

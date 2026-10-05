@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
-import { EventView, OrganizationView } from "@/lib/types";
-import { EmptyState, ErrorState, LoadingState, StatusBadge } from "@/components/common";
+import { EventView, MyDataExport, OrganizationView, UserView } from "@/lib/types";
+import { ConfirmDialog, EmptyState, ErrorState, LoadingState, StatusBadge } from "@/components/common";
 import { EventWizard } from "@/components/EventWizard";
 
 export default function DashboardPage() {
@@ -12,6 +12,47 @@ export default function DashboardPage() {
   const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
   const [events, setEvents] = useState<EventView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [me, setMe] = useState<UserView | null>(null);
+  const [deletionDialogOpen, setDeletionDialogOpen] = useState(false);
+  const [deletionBusy, setDeletionBusy] = useState(false);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
+
+  async function loadMe() {
+    try {
+      setMe(await apiFetch<UserView>("/api/v1/me"));
+    } catch {
+      // Account panel is best-effort; the org/event loads above already surface sign-in errors.
+    }
+  }
+
+  async function handleExportMyData() {
+    try {
+      const data = await apiFetch<MyDataExport>("/api/v1/me/export");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "twistmeet-my-data.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setAccountMessage(err instanceof ApiError ? err.message : "Export failed");
+    }
+  }
+
+  async function handleConfirmDeletionRequest() {
+    setDeletionBusy(true);
+    try {
+      const updated = await apiFetch<UserView>("/api/v1/me/deletion-request", { method: "POST" });
+      setMe(updated);
+      setDeletionDialogOpen(false);
+      setAccountMessage("Deletion requested — an operator will follow up (see the account's data retention policy).");
+    } catch (err) {
+      setAccountMessage(err instanceof ApiError ? err.message : "Request failed");
+    } finally {
+      setDeletionBusy(false);
+    }
+  }
 
   async function loadOrgs() {
     try {
@@ -37,6 +78,7 @@ export default function DashboardPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount
     loadOrgs();
+    loadMe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -89,6 +131,27 @@ export default function DashboardPage() {
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: "var(--space-4) var(--space-2)" }}>
       <h1>Organization dashboard</h1>
+
+      <section className="card" style={{ marginBottom: "var(--space-3)" }}>
+        <h2>Your account</h2>
+        {me?.deletionRequestedAt && (
+          <p className="error-text">
+            Deletion requested on {new Date(me.deletionRequestedAt).toLocaleString()} — pending an
+            operator&apos;s action under the account&apos;s data retention policy.
+          </p>
+        )}
+        <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
+          <button type="button" onClick={handleExportMyData}>
+            Export my data
+          </button>
+          {!me?.deletionRequestedAt && (
+            <button type="button" onClick={() => setDeletionDialogOpen(true)}>
+              Request account deletion
+            </button>
+          )}
+        </div>
+        {accountMessage && <p style={{ marginTop: "var(--space-1)" }}>{accountMessage}</p>}
+      </section>
 
       <section className="card" style={{ marginBottom: "var(--space-3)" }}>
         <h2>Your organizations</h2>
@@ -146,6 +209,16 @@ export default function DashboardPage() {
       )}
 
       {error && <p className="error-text" style={{ marginTop: "var(--space-2)" }}>{error}</p>}
+
+      <ConfirmDialog
+        open={deletionDialogOpen}
+        title="Request account deletion?"
+        summary="This records a deletion request on your account for an operator to review — it does not delete anything automatically. You can keep using your account in the meantime."
+        confirmLabel="Request deletion"
+        busy={deletionBusy}
+        onConfirm={handleConfirmDeletionRequest}
+        onCancel={() => setDeletionDialogOpen(false)}
+      />
     </main>
   );
 }

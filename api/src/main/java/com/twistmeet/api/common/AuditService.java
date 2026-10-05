@@ -30,4 +30,14 @@ public class AuditService {
     repository.save(
         new AuditEvent(null, eventId, "GUEST", entrantId, action, targetType, targetId, null));
   }
+
+  /**
+   * A staff member's own self-service action (e.g. export/deletion request), not scoped to any one
+   * organization or event.
+   */
+  public void recordSelfServiceAction(
+      UUID actorUserId, String action, String targetType, String targetId) {
+    repository.save(
+        new AuditEvent(null, null, "STAFF", actorUserId, action, targetType, targetId, null));
+  }
 }

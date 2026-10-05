@@ -30,6 +30,14 @@ public class User {
   @Column(name = "created_at", nullable = false)
   private Instant createdAt = Instant.now();
 
+  /**
+   * 04 "`User`: staff identity, authentication settings, deletion state." Set once, by the user
+   * themselves (self-service), never cleared — a flag for an operator to act on once a retention
+   * policy exists (DATA_RETENTION_DECISIONS.md), not something that triggers deletion on its own.
+   */
+  @Column(name = "deletion_requested_at")
+  private Instant deletionRequestedAt;
+
   @Version private long version;
 
   protected User() {}
@@ -66,6 +74,17 @@ public class User {
 
   public Instant getCreatedAt() {
     return createdAt;
+  }
+
+  public Instant getDeletionRequestedAt() {
+    return deletionRequestedAt;
+  }
+
+  /** Idempotent: a repeat request leaves the original timestamp untouched. */
+  public void requestDeletion() {
+    if (deletionRequestedAt == null) {
+      deletionRequestedAt = Instant.now();
+    }
   }
 
   public long getVersion() {
