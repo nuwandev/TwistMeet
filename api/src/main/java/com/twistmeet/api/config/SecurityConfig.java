@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.SessionManagementConfigurer;
@@ -56,12 +57,26 @@ public class SecurityConfig {
 
   @Bean
   public SecurityFilterChain securityFilterChain(
-      HttpSecurity http, ObjectMapper objectMapper, CorsConfigurationSource corsConfigurationSource)
+      HttpSecurity http,
+      ObjectMapper objectMapper,
+      CorsConfigurationSource corsConfigurationSource,
+      Environment env)
       throws Exception {
+    // The CSRF cookie must stay readable by JavaScript (withHttpOnlyFalse — the web client reads
+    // it to echo back as X-XSRF-TOKEN), but `secure`/`same-site` are still worth setting in
+    // production: local/CI dev runs over plain HTTP, where a `secure` cookie would never be sent
+    // at all. See application-production.yml for the parallel fix on the session cookie, found by
+    // the same `12` security-checklist review (SecurityConfig's own comment claimed "a secure...
+    // cookie" with nothing actually enforcing it).
+    boolean isProduction = env.acceptsProfiles(Profiles.of("production"));
+    CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+    if (isProduction) {
+      csrfTokenRepository.setCookieCustomizer(cookie -> cookie.secure(true).sameSite("Lax"));
+    }
     http.cors(cors -> cors.configurationSource(corsConfigurationSource))
         .csrf(
             csrf ->
-                csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                csrf.csrfTokenRepository(csrfTokenRepository)
                     .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                     .ignoringRequestMatchers(
                         "/api/v1/auth/register",
