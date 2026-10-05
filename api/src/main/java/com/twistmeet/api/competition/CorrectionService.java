@@ -142,7 +142,8 @@ public class CorrectionService {
         "Correction",
         correctionId.toString(),
         body.reason());
-    eventStreamService.publish(event.getId(), "CORRECTION_DECIDED", correctionId, Set.of("state", "decision"));
+    eventStreamService.publish(
+        event.getId(), "CORRECTION_DECIDED", correctionId, Set.of("state", "decision"));
     return correction;
   }
 

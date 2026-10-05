@@ -18,17 +18,17 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 08 "Real-time updates": "Use SSE or WebSocket with authenticated, event-scoped subscriptions.
- * Initial snapshot comes from REST; updates contain {eventId, eventVersion, eventType,
- * resourceId, changedFields, occurredAt} and no scramble text... Public channel emits only
- * published fields." This is a plain in-process pub/sub (one API instance per environment, 00
- * §10 "Deploy API and web app as one product" — no multi-instance fan-out requirement in V1); a
- * future horizontally-scaled deployment would need a shared broker instead of this in-memory
- * registry (recorded in DECISIONS.md).
+ * Initial snapshot comes from REST; updates contain {eventId, eventVersion, eventType, resourceId,
+ * changedFields, occurredAt} and no scramble text... Public channel emits only published fields."
+ * This is a plain in-process pub/sub (one API instance per environment, 00 §10 "Deploy API and web
+ * app as one product" — no multi-instance fan-out requirement in V1); a future horizontally-scaled
+ * deployment would need a shared broker instead of this in-memory registry (recorded in
+ * DECISIONS.md).
  *
  * <p>Callers (round/attempt/advancement/correction/help-request/event services) call {@link
- * #publish} after committing a state change. Never pass scramble notation in {@code
- * changedFields} or any payload value — the contract explicitly forbids scramble text on this
- * channel, and the public copy already only goes out when the event is published.
+ * #publish} after committing a state change. Never pass scramble notation in {@code changedFields}
+ * or any payload value — the contract explicitly forbids scramble text on this channel, and the
+ * public copy already only goes out when the event is published.
  */
 @Service
 public class EventStreamService {
@@ -85,11 +85,12 @@ public class EventStreamService {
   /**
    * Broadcasts a change to the staff channel for {@code eventId}, and — only if that event is
    * currently published — a field-stripped copy to its public channel. {@code resourceId} and
-   * {@code changedFields} describe which object changed, never its content; clients always
-   * refetch the affected resource over REST rather than trusting values carried on this channel.
+   * {@code changedFields} describe which object changed, never its content; clients always refetch
+   * the affected resource over REST rather than trusting values carried on this channel.
    */
   public void publish(UUID eventId, String eventType, UUID resourceId, Set<String> changedFields) {
-    long version = sequenceByEvent.computeIfAbsent(eventId, k -> new AtomicLong()).incrementAndGet();
+    long version =
+        sequenceByEvent.computeIfAbsent(eventId, k -> new AtomicLong()).incrementAndGet();
     String occurredAt = Instant.now().toString();
 
     Map<String, Object> staffPayload =

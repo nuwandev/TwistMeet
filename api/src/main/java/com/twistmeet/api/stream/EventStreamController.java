@@ -12,13 +12,12 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 08 "Real-time updates". The staff channel requires an authenticated session with some
- * recognized relationship to the event — the same anti-enumeration rule as every other
- * event-scoped read ({@link TenantAccessService#resolveStaffRole} 404s a total stranger, same as
- * every {@code require*} check in that class). The public channel requires only that the event be
- * currently published, exactly matching {@code PublicController}'s own boundary; both live under
- * {@code /api/v1/public/**}, which {@code SecurityConfig} already leaves open to anonymous
- * viewers.
+ * 08 "Real-time updates". The staff channel requires an authenticated session with some recognized
+ * relationship to the event — the same anti-enumeration rule as every other event-scoped read
+ * ({@link TenantAccessService#resolveStaffRole} 404s a total stranger, same as every {@code
+ * require*} check in that class). The public channel requires only that the event be currently
+ * published, exactly matching {@code PublicController}'s own boundary; both live under {@code
+ * /api/v1/public/**}, which {@code SecurityConfig} already leaves open to anonymous viewers.
  */
 @RestController
 public class EventStreamController {
@@ -43,7 +42,9 @@ public class EventStreamController {
   public SseEmitter streamStaff(@PathVariable UUID eventId) {
     UUID userId = currentUserResolver.requireCurrentUserId();
     Event event =
-        eventRepository.findById(eventId).orElseThrow(() -> ApiException.notFound("Event not found"));
+        eventRepository
+            .findById(eventId)
+            .orElseThrow(() -> ApiException.notFound("Event not found"));
     tenantAccessService.resolveStaffRole(event, userId);
     return eventStreamService.subscribeStaff(eventId);
   }

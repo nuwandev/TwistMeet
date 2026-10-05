@@ -194,7 +194,8 @@ public class EventService {
         "Event",
         event.getId().toString(),
         null);
-    eventStreamService.publish(event.getId(), "EVENT_PUBLISHED", event.getId(), Set.of("publishedAt"));
+    eventStreamService.publish(
+        event.getId(), "EVENT_PUBLISHED", event.getId(), Set.of("publishedAt"));
     return event;
   }
 
@@ -212,7 +213,8 @@ public class EventService {
         "Event",
         event.getId().toString(),
         null);
-    eventStreamService.publish(event.getId(), "EVENT_UNPUBLISHED", event.getId(), Set.of("publishedAt"));
+    eventStreamService.publish(
+        event.getId(), "EVENT_UNPUBLISHED", event.getId(), Set.of("publishedAt"));
     return event;
   }
 

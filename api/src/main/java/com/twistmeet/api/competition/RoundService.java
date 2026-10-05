@@ -226,7 +226,8 @@ public class RoundService {
         "Round",
         roundId.toString(),
         null);
-    eventStreamService.publish(round.getEventId(), "ROUND_STATE_CHANGED", roundId, Set.of("paused"));
+    eventStreamService.publish(
+        round.getEventId(), "ROUND_STATE_CHANGED", roundId, Set.of("paused"));
     return round;
   }
 

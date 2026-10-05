@@ -18,8 +18,8 @@ import org.springframework.http.ResponseEntity;
 /**
  * 08 "Real-time updates": "Use SSE or WebSocket with authenticated, event-scoped subscriptions...
  * Public channel emits only published fields." A plain blocking HTTP call via {@code TestApiClient}
- * cannot exercise the streaming endpoints themselves (the connection is intentionally left open,
- * so {@code TestRestTemplate} would hang waiting for a body that never ends) — those two paths are
+ * cannot exercise the streaming endpoints themselves (the connection is intentionally left open, so
+ * {@code TestRestTemplate} would hang waiting for a body that never ends) — those two paths are
  * covered here with a raw {@link HttpClient} that reads only the initial "connected" comment line
  * and then disconnects. Authorization boundaries, which complete immediately with no emitter ever
  * created (a 404/403/404 response, not a stream), are covered with the ordinary blocking client.
@@ -28,7 +28,8 @@ class EventStreamTest extends AbstractIntegrationTest {
 
   @Test
   void staffStreamIsAnyRecognizedStaffButStrangerGets404() throws Exception {
-    String orgId = registerVerifyAndCreateOrg(client, "stream1@example.com", "Owner1", "Stream Org 1");
+    String orgId =
+        registerVerifyAndCreateOrg(client, "stream1@example.com", "Owner1", "Stream Org 1");
     String eventId = createEvent(client, orgId, "Stream Event 1", "PHYSICAL_JUDGE");
 
     String rootUri = restTemplate.getRootUri();
@@ -64,7 +65,8 @@ class EventStreamTest extends AbstractIntegrationTest {
 
   @Test
   void publicStreamRequiresThePublishedEvent() throws Exception {
-    String orgId = registerVerifyAndCreateOrg(client, "stream3@example.com", "Owner3", "Stream Org 3");
+    String orgId =
+        registerVerifyAndCreateOrg(client, "stream3@example.com", "Owner3", "Stream Org 3");
     String eventId = createEvent(client, orgId, "Stream Event 3", "PHYSICAL_JUDGE");
 
     // Not yet published: unknown slug, so the public stream 404s immediately (no emitter).
