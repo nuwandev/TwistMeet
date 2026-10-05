@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
-import { CorrectionView, MyRole } from "@/lib/types";
+import { CorrectionView, HelpRequestView, MyRole } from "@/lib/types";
 import {
   ConfirmDialog,
   EmptyState,
@@ -29,6 +29,7 @@ export default function CorrectionQueuePage() {
   const { eventId } = useParams<{ eventId: string }>();
   const online = useOnlineStatus();
   const [corrections, setCorrections] = useState<CorrectionView[] | null>(null);
+  const [helpRequests, setHelpRequests] = useState<HelpRequestView[]>([]);
   const [role, setRole] = useState<MyRole | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,9 +47,31 @@ export default function CorrectionQueuePage() {
     }
   }
 
+  async function loadHelpRequests() {
+    try {
+      const data = await apiFetch<HelpRequestView[]>(
+        `/api/v1/events/${eventId}/help-requests?state=PENDING`,
+      );
+      setHelpRequests(data);
+    } catch {
+      setHelpRequests([]);
+    }
+  }
+
+  async function resolveHelpRequest(id: string) {
+    setBusy(true);
+    try {
+      await apiFetch(`/api/v1/help-requests/${id}/resolve`, { method: "POST" });
+      await loadHelpRequests();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount
     load();
+    loadHelpRequests();
     apiFetch<{ role: MyRole }>(`/api/v1/events/${eventId}/my-role`)
       .then((r) => setRole(r.role))
       .catch(() => setRole(null));
@@ -113,6 +136,26 @@ export default function CorrectionQueuePage() {
       {!canDecide && role && (
         <p className="status-badge">Only organizers can decide correction requests. You can still view them.</p>
       )}
+
+      <section className="card" style={{ marginBottom: "var(--space-3)" }}>
+        <h2>Help requests ({helpRequests.length})</h2>
+        {helpRequests.length === 0 ? (
+          <EmptyState title="No one is currently requesting help." />
+        ) : (
+          <ul style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+            {helpRequests.map((h) => (
+              <li key={h.id} className="card">
+                <p>
+                  Attempt help requested at {new Date(h.createdAt).toLocaleTimeString()}
+                </p>
+                <button disabled={busy} onClick={() => resolveHelpRequest(h.id)}>
+                  Mark resolved
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {pending.length === 0 ? (
         <EmptyState title="No pending correction requests." />

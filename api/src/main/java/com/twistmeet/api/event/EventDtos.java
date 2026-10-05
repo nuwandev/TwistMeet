@@ -23,6 +23,10 @@ public final class EventDtos {
   /** Backs {@code RoleBanner} (07): the caller's resolved staff role for one event. */
   public record MyRoleView(String role) {}
 
+  public record ReopenEventRequest(@NotBlank @Size(max = 500) String reason) {}
+
+  public record SetPublicNameMaskRequest(@NotNull Boolean masked) {}
+
   public record UpdateEventRequest(
       @NotBlank @Size(min = 3, max = 80) String name,
       @Size(max = 2000) String description,
@@ -46,6 +50,7 @@ public final class EventDtos {
       String rulesetSnapshot,
       Instant publishedAt,
       String publicSlug,
+      boolean publicNameMask,
       Instant createdAt,
       long version) {
     public static EventView of(Event event, boolean includeJoinCode) {
@@ -66,6 +71,7 @@ public final class EventDtos {
           event.getRulesetSnapshot(),
           event.getPublishedAt(),
           event.getPublicSlug(),
+          event.isPublicNameMask(),
           event.getCreatedAt(),
           event.getVersion());
     }

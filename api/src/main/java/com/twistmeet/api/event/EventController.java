@@ -4,6 +4,8 @@ import com.twistmeet.api.auth.CurrentUserResolver;
 import com.twistmeet.api.event.EventDtos.CreateEventRequest;
 import com.twistmeet.api.event.EventDtos.EventView;
 import com.twistmeet.api.event.EventDtos.MyRoleView;
+import com.twistmeet.api.event.EventDtos.ReopenEventRequest;
+import com.twistmeet.api.event.EventDtos.SetPublicNameMaskRequest;
 import com.twistmeet.api.event.EventDtos.UpdateEventRequest;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -93,6 +95,38 @@ public class EventController {
   public EventView unpublish(@PathVariable UUID eventId) {
     UUID userId = currentUserResolver.requireCurrentUserId();
     return EventView.of(eventService.unpublish(eventId, userId), true);
+  }
+
+  @PostMapping("/events/{eventId}/complete")
+  public EventView complete(@PathVariable UUID eventId) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return EventView.of(eventService.complete(eventId, userId), true);
+  }
+
+  @PostMapping("/events/{eventId}/reopen")
+  public EventView reopen(@PathVariable UUID eventId, @Valid @RequestBody ReopenEventRequest body) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return EventView.of(eventService.reopen(eventId, userId, body.reason()), true);
+  }
+
+  @PostMapping("/events/{eventId}/archive")
+  public EventView archive(@PathVariable UUID eventId) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return EventView.of(eventService.archive(eventId, userId), true);
+  }
+
+  @PostMapping("/events/{eventId}/clone")
+  public ResponseEntity<EventView> clone(@PathVariable UUID eventId) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(EventView.of(eventService.clone(eventId, userId), true));
+  }
+
+  @PostMapping("/events/{eventId}/public-name-mask")
+  public EventView setPublicNameMask(
+      @PathVariable UUID eventId, @Valid @RequestBody SetPublicNameMaskRequest body) {
+    UUID userId = currentUserResolver.requireCurrentUserId();
+    return EventView.of(eventService.setPublicNameMask(eventId, userId, body.masked()), true);
   }
 
   @GetMapping("/events/{eventId}/my-role")

@@ -20,6 +20,7 @@ type PendingConfirm =
   | { kind: "remove"; entrantId: string; name: string }
   | { kind: "withdraw"; entrantId: string; name: string }
   | { kind: "open-registration" }
+  | { kind: "archive" }
   | null;
 
 export default function EventDetailPage() {
@@ -31,6 +32,7 @@ export default function EventDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<PendingConfirm>(null);
+  const [reopenReason, setReopenReason] = useState("");
 
   async function load() {
     try {
@@ -227,6 +229,52 @@ export default function EventDetailPage() {
       </section>
 
       <section className="card" style={{ marginBottom: "var(--space-3)" }}>
+        <h2>Lifecycle, clone, and archive</h2>
+        {event.state === "ARCHIVED" ? (
+          <p className="status-badge">
+            This event is archived and read-only (00 §6). Export and history remain available.
+          </p>
+        ) : (
+          <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
+            <button disabled={busy} onClick={() => runAction(`/api/v1/events/${eventId}/complete`)}>
+              Mark event completed
+            </button>
+            {event.state === "COMPLETED" && (
+              <>
+                <input
+                  className="field-input"
+                  placeholder="Reason for reopening"
+                  value={reopenReason}
+                  onChange={(e) => setReopenReason(e.target.value)}
+                />
+                <button
+                  disabled={busy || !reopenReason.trim()}
+                  onClick={() => {
+                    runAction(`/api/v1/events/${eventId}/reopen`, "POST", {
+                      reason: reopenReason,
+                    });
+                    setReopenReason("");
+                  }}
+                >
+                  Reopen for corrections
+                </button>
+              </>
+            )}
+            <button disabled={busy} onClick={() => setConfirm({ kind: "archive" })}>
+              Archive event
+            </button>
+          </div>
+        )}
+        <button
+          disabled={busy}
+          onClick={() => runAction(`/api/v1/events/${eventId}/clone`)}
+          style={{ marginTop: "var(--space-1)" }}
+        >
+          Clone event settings
+        </button>
+      </section>
+
+      <section className="card" style={{ marginBottom: "var(--space-3)" }}>
         <h2>Publishing</h2>
         <p>
           <StatusBadge tone={event.publishedAt ? "good" : "neutral"}>
@@ -364,6 +412,18 @@ export default function EventDetailPage() {
             setConfirm(null);
             runAction(`/api/v1/events/${eventId}/entrants/${entrantId}`, "DELETE");
           }
+        }}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm?.kind === "archive"}
+        title="Archive event"
+        summary="The event becomes permanently read-only (00 §6). History and CSV export remain available; nothing else can be changed afterward."
+        confirmLabel="Archive event"
+        busy={busy}
+        onConfirm={() => {
+          setConfirm(null);
+          runAction(`/api/v1/events/${eventId}/archive`);
         }}
         onCancel={() => setConfirm(null)}
       />

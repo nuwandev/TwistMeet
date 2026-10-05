@@ -115,8 +115,12 @@ public class PublicDisplayService {
                               .filter(a -> a.getResultStatus() != ResultStatus.PENDING)
                               .count();
                   RoundResult result = r.result();
+                  String displayName =
+                      event.isPublicNameMask()
+                          ? "Competitor " + r.rank()
+                          : entrant.getDisplayName();
                   return new PublicEntrantStanding(
-                      entrant.getDisplayName(),
+                      displayName,
                       r.rank(),
                       result.outcome().name(),
                       result.displayMs(),

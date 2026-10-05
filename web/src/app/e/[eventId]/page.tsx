@@ -110,6 +110,19 @@ export default function WaitingRoomPage() {
     }
   }
 
+  async function requestHelp(attempt: AttemptView) {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(`/api/v1/attempts/${attempt.id}/help-requests`, { method: "POST" });
+      setAnnouncement(`Help requested for attempt ${attempt.attemptNumber}. Staff have been notified.`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not request help");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function stopAttempt(attempt: AttemptView) {
     setBusy(true);
     setError(null);
@@ -281,6 +294,12 @@ export default function WaitingRoomPage() {
                       </p>
                     )}
                   </>
+                )}
+
+                {attempt.resultStatus === "PENDING" && attempt.state !== "VOIDED" && (
+                  <button disabled={busy} onClick={() => requestHelp(attempt)}>
+                    Request judge / help
+                  </button>
                 )}
 
                 {attempt.resultStatus !== "PENDING" && attempt.state !== "VOIDED" && (

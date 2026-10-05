@@ -261,6 +261,16 @@ export type PublicEntrantStanding = {
   totalAttempts: number;
 };
 
+export type HelpRequestView = {
+  id: string;
+  attemptId: string;
+  entrantId: string;
+  state: "PENDING" | "RESOLVED";
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+};
+
 export type PublicStandingsView = {
   roundId: string;
   provisional: boolean;

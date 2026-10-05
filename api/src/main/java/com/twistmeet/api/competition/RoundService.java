@@ -68,6 +68,7 @@ public class RoundService {
   public Round create(UUID eventId, UUID actorUserId, CreateRoundRequest request) {
     Event event = findEventOrNotFound(eventId);
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireEventNotArchived(event);
     if (!ROUND_CONFIGURABLE_EVENT_STATES.contains(event.getState())) {
       throw ApiException.invalidTransition(
           "Rounds can only be configured before the event is READY/LIVE");
@@ -102,6 +103,7 @@ public class RoundService {
     Round round = findRoundOrNotFound(roundId);
     Event event = findEventOrNotFound(round.getEventId());
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireEventNotArchived(event);
     if (round.getState() != RoundState.DRAFT) {
       throw ApiException.invalidTransition("Round can only be edited while DRAFT");
     }
@@ -135,6 +137,7 @@ public class RoundService {
     UUID eventId = round.getEventId();
     Event event = findEventOrNotFound(eventId);
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireEventNotArchived(event);
     requireRoundState(round, RoundState.DRAFT, RoundState.PREPARING);
 
     // M5: if an advancement commit (AdvancementService) ever admitted a specific roster into
@@ -203,6 +206,7 @@ public class RoundService {
     Round round = findRoundOrNotFound(roundId);
     Event event = findEventOrNotFound(round.getEventId());
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireEventNotArchived(event);
     if (round.getState() != RoundState.LIVE) {
       throw ApiException.invalidTransition("Round must be LIVE to pause/resume");
     }
@@ -226,6 +230,7 @@ public class RoundService {
     UUID eventId = round.getEventId();
     Event event = findEventOrNotFound(eventId);
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireEventNotArchived(event);
     if (round.getState() != RoundState.LIVE) {
       throw ApiException.invalidTransition("Round must be LIVE to enter review");
     }
@@ -260,6 +265,7 @@ public class RoundService {
     UUID eventId = round.getEventId();
     Event event = findEventOrNotFound(eventId);
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireEventNotArchived(event);
     if (round.getState() != RoundState.REVIEW) {
       throw ApiException.invalidTransition("Round must be in REVIEW to close");
     }
@@ -297,6 +303,7 @@ public class RoundService {
     UUID eventId = round.getEventId();
     Event event = findEventOrNotFound(eventId);
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireEventNotArchived(event);
     requireRoundState(round, from, to);
     if (requireEntrantsExist && attemptRepository.findByRoundId(roundId).isEmpty()) {
       throw ApiException.invalidTransition("Round has no prepared attempt slots");
@@ -312,6 +319,12 @@ public class RoundService {
         roundId.toString(),
         null);
     return round;
+  }
+
+  private void requireEventNotArchived(Event event) {
+    if (event.getState() == EventState.ARCHIVED) {
+      throw ApiException.invalidTransition("Archived events are read-only");
+    }
   }
 
   private void requireRoundState(Round round, RoundState expected, RoundState target) {

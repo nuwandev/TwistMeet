@@ -83,6 +83,12 @@ public class Event {
   @Column(name = "public_slug", unique = true)
   private String publicSlug;
 
+  // 07 S12 "Public name masking option." Null/false = show real display names on the public
+  // page (current default); true replaces each name with "Competitor N" there only — staff
+  // views are never masked.
+  @Column(name = "public_name_mask", nullable = false)
+  private boolean publicNameMask = false;
+
   @Version private long version;
 
   protected Event() {}
@@ -222,5 +228,13 @@ public class Event {
   public void unpublish(String newSlug) {
     this.publishedAt = null;
     this.publicSlug = newSlug;
+  }
+
+  public boolean isPublicNameMask() {
+    return publicNameMask;
+  }
+
+  public void setPublicNameMask(boolean publicNameMask) {
+    this.publicNameMask = publicNameMask;
   }
 }

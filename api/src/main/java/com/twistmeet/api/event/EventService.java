@@ -10,7 +10,9 @@ import com.twistmeet.api.scoring.RulesetVersion;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,24 +20,37 @@ import tools.jackson.databind.ObjectMapper;
 
 /**
  * Event lifecycle per 00 §6: {@code DRAFT -> REGISTRATION_OPEN -> REGISTRATION_LOCKED -> READY ->
- * LIVE -> COMPLETED -> ARCHIVED}, organizer-only transitions. M1 only drives the first three
- * states; {@code READY}/{@code LIVE}/{@code COMPLETED}/{@code ARCHIVED} require rounds and attempts
- * (M2+) and are rejected here as not-yet-implemented rather than silently allowed.
+ * LIVE -> COMPLETED -> ARCHIVED}, organizer-only transitions. {@code READY}/{@code LIVE} are
+ * tracked at the round level ({@link com.twistmeet.api.competition.RoundState}) rather than
+ * mirrored onto {@code Event.state} — round-level state is what every other screen/endpoint
+ * actually reads (documented in DECISIONS.md); this service drives {@code COMPLETED} and {@code
+ * ARCHIVED} directly off round completion instead of an unused intermediate event-level READY/LIVE
+ * pair.
  */
 @Service
 public class EventService {
 
+  private static final Set<EventState> ARCHIVABLE_FROM =
+      EnumSet.of(
+          EventState.DRAFT,
+          EventState.REGISTRATION_OPEN,
+          EventState.REGISTRATION_LOCKED,
+          EventState.COMPLETED);
+
   private final EventRepository eventRepository;
+  private final com.twistmeet.api.competition.RoundRepository roundRepository;
   private final TenantAccessService tenantAccessService;
   private final AuditService auditService;
   private final ObjectMapper objectMapper;
 
   public EventService(
       EventRepository eventRepository,
+      com.twistmeet.api.competition.RoundRepository roundRepository,
       TenantAccessService tenantAccessService,
       AuditService auditService,
       ObjectMapper objectMapper) {
     this.eventRepository = eventRepository;
+    this.roundRepository = roundRepository;
     this.tenantAccessService = tenantAccessService;
     this.auditService = auditService;
     this.objectMapper = objectMapper;
@@ -99,6 +114,7 @@ public class EventService {
   public Event update(UUID eventId, UUID actorUserId, UpdateEventRequest request) {
     Event event = findOrNotFound(eventId);
     tenantAccessService.requireAnyStaffRole(event.getOrganizationId(), actorUserId);
+    requireNotArchived(event);
     if (event.getState() != EventState.DRAFT) {
       // Simplification recorded in DECISIONS.md: 08 allows editing until entrants are
       // registered; M1 takes the safer, simpler rule of locking edits as soon as registration
@@ -163,6 +179,7 @@ public class EventService {
   public Event publish(UUID eventId, UUID actorUserId) {
     Event event = findOrNotFound(eventId);
     tenantAccessService.requireOrganizer(event, actorUserId);
+    requireNotArchived(event);
     event.publish(event.getPublicSlug() == null ? newUniqueSlug() : null);
     event = eventRepository.save(event);
     auditService.recordStaffAction(
@@ -189,6 +206,25 @@ public class EventService {
         "EVENT_UNPUBLISHED",
         "Event",
         event.getId().toString(),
+        null);
+    return event;
+  }
+
+  /** 07 S12 "Public name masking option." */
+  @Transactional
+  public Event setPublicNameMask(UUID eventId, UUID actorUserId, boolean masked) {
+    Event event = findOrNotFound(eventId);
+    tenantAccessService.requireOrganizer(event, actorUserId);
+    requireNotArchived(event);
+    event.setPublicNameMask(masked);
+    event = eventRepository.save(event);
+    auditService.recordStaffAction(
+        event.getOrganizationId(),
+        eventId,
+        actorUserId,
+        masked ? "PUBLIC_NAME_MASK_ENABLED" : "PUBLIC_NAME_MASK_DISABLED",
+        "Event",
+        eventId.toString(),
         null);
     return event;
   }
@@ -223,6 +259,7 @@ public class EventService {
       UUID eventId, UUID actorUserId, EventState from, EventState to, String auditAction) {
     Event event = findOrNotFound(eventId);
     tenantAccessService.requireAnyStaffRole(event.getOrganizationId(), actorUserId);
+    requireNotArchived(event);
     if (event.getState() != from) {
       throw ApiException.invalidTransition(
           "Cannot move event from " + event.getState() + " to " + to);
@@ -248,6 +285,140 @@ public class EventService {
   public TenantAccessService.ResolvedStaffRole getMyRole(UUID eventId, UUID actorUserId) {
     Event event = findOrNotFound(eventId);
     return tenantAccessService.resolveStaffRole(event, actorUserId);
+  }
+
+  /**
+   * COMPLETED once every configured round is CLOSED (00 §6). Driven off round state rather than a
+   * separate manual trigger, since "every round closed" is the only meaningful definition of "the
+   * competition is over" this data model has.
+   */
+  @Transactional
+  public Event complete(UUID eventId, UUID actorUserId) {
+    Event event = findOrNotFound(eventId);
+    tenantAccessService.requireOrganizer(event, actorUserId);
+    requireNotArchived(event);
+    if (event.getState() == EventState.COMPLETED) {
+      return event; // idempotent
+    }
+    var rounds = roundRepository.findByEventIdOrderByOrder(eventId);
+    if (rounds.isEmpty()) {
+      throw ApiException.invalidTransition("Event has no rounds to complete");
+    }
+    boolean anyNotClosed =
+        rounds.stream()
+            .anyMatch(r -> r.getState() != com.twistmeet.api.competition.RoundState.CLOSED);
+    if (anyNotClosed) {
+      throw ApiException.invalidTransition("Every round must be CLOSED before the event completes");
+    }
+    event.setState(EventState.COMPLETED);
+    event = eventRepository.save(event);
+    auditService.recordStaffAction(
+        event.getOrganizationId(),
+        eventId,
+        actorUserId,
+        "EVENT_COMPLETED",
+        "Event",
+        eventId.toString(),
+        null);
+    return event;
+  }
+
+  /**
+   * "A completed event can be reopened for corrections; record actor/reason and recompute derived
+   * standings transparently" (00 §6). Standings are always computed live (never cached), so
+   * "recompute transparently" already happens automatically; this method's job is just the
+   * event-level state move plus the required actor/reason audit record. Corrections themselves
+   * (CorrectionService) already accept a decision regardless of round state — reopening the event
+   * doesn't additionally unlock anything at the round level, it only reflects that the event is no
+   * longer considered finally closed out.
+   */
+  @Transactional
+  public Event reopen(UUID eventId, UUID actorUserId, String reason) {
+    Event event = findOrNotFound(eventId);
+    tenantAccessService.requireOrganizer(event, actorUserId);
+    requireNotArchived(event);
+    if (event.getState() != EventState.COMPLETED) {
+      throw ApiException.invalidTransition("Only a COMPLETED event can be reopened");
+    }
+    event.setState(EventState.REGISTRATION_LOCKED);
+    event = eventRepository.save(event);
+    auditService.recordStaffAction(
+        event.getOrganizationId(),
+        eventId,
+        actorUserId,
+        "EVENT_REOPENED",
+        "Event",
+        eventId.toString(),
+        reason);
+    return event;
+  }
+
+  /**
+   * "Require an explicit confirmation for... event archive" (00 §5) — enforced client-side via
+   * {@code ConfirmDialog}, same pattern as round close/void/publish. "Archived is read-only except
+   * export/delete request processes" (00 §6): {@link #requireNotArchived} enforces that on every
+   * other mutating method in this service and in {@code RoundService}.
+   */
+  @Transactional
+  public Event archive(UUID eventId, UUID actorUserId) {
+    Event event = findOrNotFound(eventId);
+    tenantAccessService.requireOrganizer(event, actorUserId);
+    if (!ARCHIVABLE_FROM.contains(event.getState())) {
+      throw ApiException.invalidTransition("Cannot archive an event in state " + event.getState());
+    }
+    event.setState(EventState.ARCHIVED);
+    event = eventRepository.save(event);
+    auditService.recordStaffAction(
+        event.getOrganizationId(),
+        eventId,
+        actorUserId,
+        "EVENT_ARCHIVED",
+        "Event",
+        eventId.toString(),
+        null);
+    return event;
+  }
+
+  /**
+   * 00 §2: "Event create/edit... rules preview, clone, archive and event history." Clones
+   * configuration only (name, description, timezone, venue, visibility, timer mode, scramble
+   * policy) into a brand-new DRAFT event with its own join code — never entrants, rounds, attempts,
+   * or results, which "clone" in the S14 "copy event settings" sense never implies.
+   */
+  @Transactional
+  public Event clone(UUID eventId, UUID actorUserId) {
+    Event source = findOrNotFound(eventId);
+    tenantAccessService.requireAnyStaffRole(source.getOrganizationId(), actorUserId);
+    String code = SecretTokens.newJoinCode();
+    Event copy =
+        new Event(
+            source.getOrganizationId(),
+            source.getName() + " (copy)",
+            source.getDescription(),
+            source.getStartsAt(),
+            source.getTimezone(),
+            source.getVenueLabel(),
+            source.getVisibility(),
+            code,
+            SecretTokens.sha256Hex(code));
+    copy.setTimerMode(source.getTimerMode());
+    copy.setScramblePolicy(source.getScramblePolicy());
+    copy = eventRepository.save(copy);
+    auditService.recordStaffAction(
+        source.getOrganizationId(),
+        copy.getId(),
+        actorUserId,
+        "EVENT_CLONED",
+        "Event",
+        eventId.toString(),
+        null);
+    return copy;
+  }
+
+  private void requireNotArchived(Event event) {
+    if (event.getState() == EventState.ARCHIVED) {
+      throw ApiException.invalidTransition("Archived events are read-only");
+    }
   }
 
   private Event findOrNotFound(UUID eventId) {
