@@ -1,0 +1,237 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  api:
+    name: API (format, lint, test, build)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_DB: twistmeet_test
+          POSTGRES_USER: twistmeet
+          POSTGRES_PASSWORD: twistmeet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U twistmeet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TWISTMEET_DB_URL: jdbc:postgresql://localhost:5432/twistmeet_test
+      TWISTMEET_DB_USER: twistmeet
+      TWISTMEET_DB_PASSWORD: twistmeet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Gradle check (spotlessCheck + test)
+        working-directory: api
+        run: ./gradlew check --console=plain
+
+      - name: Gradle build
+        working-directory: api
+        run: ./gradlew build --console=plain
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-reports
+          path: api/build/reports/tests
+
+  web:
+    name: Web (lint, typecheck, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Lint (ESLint)
+        working-directory: web
+        run: npm run lint
+
+      - name: Build (includes TypeScript type-checking)
+        working-directory: web
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+        run: npm run build
+
+  # Separate, additive job: the real running API + web app + a dev-only mail catcher, driving
+  # web/e2e/critical-journey.spec.ts through an actual Chromium browser. Deliberately isolated
+  # from the `api`/`web` jobs above (its own Postgres service, its own steps) so a flake or
+  # timing issue here never blocks those two existing, fast checks — this job's failure is its
+  # own signal, not a regression in the unit/build checks every push already relied on.
+  e2e:
+    name: Web E2E (critical journey, Playwright)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_DB: twistmeet_e2e
+          POSTGRES_USER: twistmeet
+          POSTGRES_PASSWORD: twistmeet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U twistmeet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TWISTMEET_DB_URL: jdbc:postgresql://localhost:5432/twistmeet_e2e
+      TWISTMEET_DB_USER: twistmeet
+      TWISTMEET_DB_PASSWORD: twistmeet
+      TWISTMEET_MAIL_HOST: 127.0.0.1
+      TWISTMEET_MAIL_PORT: 1025
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+      MAIL_LOG_PATH: /tmp/twistmeet-captured-mail.log
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: gradle
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # web/e2e/mailcatcher.py uses the standard library's `smtpd` module (same choice as this
+      # session's local verification), which was removed in Python 3.12 — ubuntu-latest's default
+      # python3 is 3.12+, so this pins 3.11 explicitly rather than letting the runner's default
+      # silently break the catcher. See mailcatcher.py's own comment for the longer-term note
+      # (swap to aiosmtpd if/when 3.11 support becomes impractical to keep pinning).
+      - name: Set up Python 3.11 for the dev-only mail catcher
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Playwright's Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Start the mail catcher
+        run: |
+          nohup python3 web/e2e/mailcatcher.py > /tmp/mailcatcher.log 2>&1 &
+          disown
+
+      - name: Start the API
+        working-directory: api
+        run: |
+          nohup ./gradlew bootRun --console=plain > /tmp/api.log 2>&1 &
+          disown
+
+      - name: Wait for the API to be healthy
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+              echo "API is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become healthy in time"
+          cat /tmp/api.log
+          exit 1
+
+      - name: Build and start the web app
+        working-directory: web
+        run: |
+          npm run build
+          nohup npm run start > /tmp/web.log 2>&1 &
+          disown
+
+      - name: Wait for the web app to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://localhost:3000; then
+              echo "web is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "web did not become ready in time"
+          cat /tmp/web.log
+          exit 1
+
+      - name: Run the critical-journey E2E test
+        working-directory: web
+        run: npx playwright test --reporter=list
+
+      - name: Upload Playwright trace/report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/test-results
+
+  # Validates the production packaging added for a small V1 pilot deployment (DEPLOYMENT.md):
+  # that docker-compose.production.yml is syntactically valid against a filled-in example env
+  # file, and that both production images actually build. This never runs the images, starts a
+  # container against a real database, or talks to any external service — build-only validation,
+  # on every push, so a bad Dockerfile/compose edit is caught here rather than at a real deploy.
+  docker-packaging:
+    name: Docker packaging (compose config + image builds)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.production.yml parses with a filled-in example env file
+        run: |
+          cp .env.production.example /tmp/.env.ci-check
+          docker compose -f docker-compose.production.yml --env-file /tmp/.env.ci-check config > /dev/null
+
+      - name: Validate the existing local-dev docker-compose.yml still parses
+        run: docker compose -f docker-compose.yml config > /dev/null
+
+      - name: Build the API production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: false
+          tags: twistmeet-api:ci
+
+      - name: Build the web production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          file: ./web/Dockerfile
+          push: false
+          tags: twistmeet-web:ci
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=https://api.example.invalid
+            NEXT_PUBLIC_APP_NAME=TwistMeet

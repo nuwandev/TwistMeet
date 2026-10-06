@@ -1,0 +1,25 @@
+# Activated with SPRING_PROFILES_ACTIVE=production (or --spring.profiles.active=production).
+# Its main job is to exist, so Spring recognizes the "production" profile name and
+# ScrambleEncryptionService's fail-fast check (environment.acceptsProfiles(Profiles.of
+# ("production"))) can gate on it. Real production configuration (DB URL, mail provider, the
+# encryption key itself) still comes from environment variables per 00 §10 "store secrets in
+# platform secret manager/environment injection, never commit" — never add secrets to this file.
+#
+# The one non-secret setting below (session cookie attributes) is deliberately scoped to this
+# profile rather than application.yml: local/CI dev runs over plain HTTP, where a `secure: true`
+# cookie would never be sent at all, breaking every authenticated flow. `12`'s security checklist
+# ("CSRF/XSS/session... checks complete") found this: SecurityConfig's class comment claims "a
+# secure, HttpOnly, SameSite cookie," but nothing actually set `secure` or `same-site` — curling
+# the dev server confirmed the session cookie carries neither attribute (HttpOnly only). `lax`
+# (not `strict`) because this cookie is only ever read on same-site XHR/fetch calls from the web
+# app to the API, never needed on a cross-site top-level navigation, and `lax` avoids any risk of
+# breaking a same-site-but-different-subdomain deployment (api.example.com vs example.com, which
+# browsers still treat as "same site" for SameSite purposes — `strict` would likely also work,
+# but there is no real HTTPS production environment yet to verify that against, so this takes the
+# more conservative of the two secure options).
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true
+        same-site: lax

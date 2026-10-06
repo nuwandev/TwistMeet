@@ -1,0 +1,85 @@
+# Production Compose EXAMPLE for a small V1 pilot — API + web only. It does not include
+# PostgreSQL or a mail provider: both are expected to be externally managed (a managed Postgres
+# instance such as Neon, RDS, or a self-hosted server you already operate; a real SMTP provider
+# such as SES/Postmark/Sendgrid). See .env.production.example for every required variable and
+# DEPLOYMENT.md for the full guide (migrations, HTTPS/reverse-proxy assumptions, backups,
+# upgrade/rollback).
+#
+# NOT production-ready as committed, by design, until an operator makes these explicit:
+#   - A real `.env.production` file with real values (never commit it — see .gitignore).
+#   - TLS termination: this file intentionally does NOT terminate HTTPS or expose ports to
+#     0.0.0.0. Both services publish only to 127.0.0.1 on the host; put a reverse proxy
+#     (Caddy, nginx, Traefik — your choice, not prescribed here) in front, on the same host or
+#     another container on a network that can reach 127.0.0.1/this stack, terminating TLS and
+#     forwarding to these loopback ports. Without that reverse proxy, this stack is not reachable
+#     from outside the host at all, which is the safe (if inert) default — never run it bound to
+#     0.0.0.0 without TLS in front, since the session/CSRF cookies require `Secure` (HTTPS) to be
+#     sent at all in the `production` Spring profile (see api/src/main/resources/application-
+#     production.yml), and credentials would otherwise cross the network in plaintext.
+#   - The web image must be built once per distinct public API origin (NEXT_PUBLIC_API_BASE_URL
+#     is baked in at build time — see web/Dockerfile's comment). The build args below are a
+#     placeholder; set them to this deployment's real public URLs before building.
+#   - A real TWISTMEET_SCRAMBLE_ENCRYPTION_KEY (see api's ScrambleEncryptionService, which
+#     refuses to start under the `production` profile without one) and a real
+#     TWISTMEET_WEB_BASE_URL matching the web app's actual public origin (CORS allow-list).
+#
+# Usage:
+#   cp .env.production.example .env.production   # then fill in real values, never commit it
+#   docker compose -f docker-compose.production.yml --env-file .env.production build
+#   docker compose -f docker-compose.production.yml --env-file .env.production up -d
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: twistmeet-api:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    environment:
+      TWISTMEET_DB_URL: ${TWISTMEET_DB_URL}
+      TWISTMEET_DB_USER: ${TWISTMEET_DB_USER}
+      TWISTMEET_DB_PASSWORD: ${TWISTMEET_DB_PASSWORD}
+      TWISTMEET_MAIL_HOST: ${TWISTMEET_MAIL_HOST}
+      TWISTMEET_MAIL_PORT: ${TWISTMEET_MAIL_PORT}
+      TWISTMEET_MAIL_FROM: ${TWISTMEET_MAIL_FROM}
+      TWISTMEET_WEB_BASE_URL: ${TWISTMEET_WEB_BASE_URL}
+      TWISTMEET_SCRAMBLE_ENCRYPTION_KEY: ${TWISTMEET_SCRAMBLE_ENCRYPTION_KEY}
+    # Published to the host's loopback interface only — see the file-level comment above on why
+    # a reverse proxy (not a publicly bound port) is the expected front door.
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - twistmeet
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-TwistMeet}
+    image: twistmeet-web:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - twistmeet
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+networks:
+  twistmeet:
+    driver: bridge
