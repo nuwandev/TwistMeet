@@ -25,7 +25,11 @@ public name masking, advancement rollback, and S14's copy-event/retention-deleti
 - `api/` — Spring Boot 4.1.1 (Java 25 LTS) modular monolith API, PostgreSQL 18, Flyway migrations.
 - `web/` — Next.js 16.3.8 (TypeScript, React 19) web app.
 - `product-docs/` — the specification package (read-only; don't edit as part of implementation).
-- `docker-compose.yml` — local Postgres + a dev-only mail catcher.
+- `docker-compose.yml` — local Postgres + a dev-only mail catcher (this is the one to use for
+  everyday development — see "Local setup" below).
+- `api/Dockerfile`, `web/Dockerfile`, `docker-compose.production.yml` — production image
+  packaging for a small V1 pilot deployment. See `DEPLOYMENT.md`, not this README, for how to
+  use them; nothing here has actually been deployed anywhere.
 
 ## Prerequisites
 

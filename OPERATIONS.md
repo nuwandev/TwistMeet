@@ -11,6 +11,10 @@ decision (hosting, domain, a real production database).
 provisioned (see DECISIONS.md "Neon findings") and no hosting/domain decision made. Everything
 below describes the mechanism and procedure; the specific endpoints, credentials, and schedule
 columns are placeholders until those decisions are made (see "Launch blockers" at the end).
+Production Docker packaging (`api/Dockerfile`, `web/Dockerfile`, `docker-compose.production.yml`,
+`DEPLOYMENT.md`) now exists for a small V1 pilot — build/run mechanics, health checks, migration
+ordering, and upgrade/rollback are documented there; it does not change the "no production
+environment exists yet" status above, since nothing has actually been deployed to a real host.
 
 ## Backup and restore
 

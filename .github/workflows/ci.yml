@@ -197,3 +197,41 @@ jobs:
         with:
           name: playwright-report
           path: web/test-results
+
+  # Validates the production packaging added for a small V1 pilot deployment (DEPLOYMENT.md):
+  # that docker-compose.production.yml is syntactically valid against a filled-in example env
+  # file, and that both production images actually build. This never runs the images, starts a
+  # container against a real database, or talks to any external service — build-only validation,
+  # on every push, so a bad Dockerfile/compose edit is caught here rather than at a real deploy.
+  docker-packaging:
+    name: Docker packaging (compose config + image builds)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose.production.yml parses with a filled-in example env file
+        run: |
+          cp .env.production.example /tmp/.env.ci-check
+          docker compose -f docker-compose.production.yml --env-file /tmp/.env.ci-check config > /dev/null
+
+      - name: Validate the existing local-dev docker-compose.yml still parses
+        run: docker compose -f docker-compose.yml config > /dev/null
+
+      - name: Build the API production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: false
+          tags: twistmeet-api:ci
+
+      - name: Build the web production image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          file: ./web/Dockerfile
+          push: false
+          tags: twistmeet-web:ci
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=https://api.example.invalid
+            NEXT_PUBLIC_APP_NAME=TwistMeet

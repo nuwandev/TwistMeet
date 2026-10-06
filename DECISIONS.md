@@ -4,6 +4,27 @@ This file tracks implementation decisions, defaults applied, and open questions,
 `product-docs/11-ai-build-playbook.md` (M0 exit criteria) and `00-authoritative-build-contract.md` §12.
 Update this file whenever an ambiguity is resolved or a behavior deviates from a document.
 
+## Status: Pre-integration branch review complete — PR opened against main, not merged
+
+Before opening a PR from this feature branch into `main` (which otherwise contains only the
+initial doc scaffold), reviewed the complete 66-commit diff for accidental files, secrets,
+debug-only behavior, and unsafe migrations: none found (one early, documented `DROP TABLE` on a
+table the same milestone had just superseded and never shipped — see migration `V2`'s own
+comment — is the only destructive SQL in the whole history). Triaged `npm audit`'s 5 high-
+severity advisories with fresh output: all one devDependency-only, non-production-reachable
+chain (`eslint-config-next`→`braces`, GHSA-vfj7-8cjw-p6xm) with no upstream-patched `braces`
+release to upgrade to at any version; not downgraded (npm's suggested fix is a semver-major
+regression that would not even remove the vulnerable code, since the latest published `braces`
+*is* the flagged version) and not silently dismissed — full reasoning in
+`SECURITY_PRIVACY_REVIEW.md`. Added production container packaging for a small V1 pilot per an
+explicit follow-up ask: `api/Dockerfile`/`web/Dockerfile` (multi-stage, non-root runtime users),
+`docker-compose.production.yml` (external Postgres/mail, loopback-only ports, no TLS
+termination — a reverse proxy is assumed, not built), `DEPLOYMENT.md`, and a CI job that builds
+both images and validates both Compose files on every push. Explicitly not claimed: this
+packaging has not been run against a real deployment target, and the sample Compose file is
+documented as not production-ready as committed until an operator supplies real secrets and a
+TLS-terminating reverse proxy.
+
 ## Status: Final V1 acceptance pass complete — not deployed, not publicly launched
 
 A requirement-by-requirement re-verification against the controlling specs and actual code/tests
