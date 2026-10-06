@@ -6,9 +6,9 @@ services:
       POSTGRES_USER: twistmeet
       POSTGRES_PASSWORD: twistmeet
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - twistmeet-postgres-data:/var/lib/postgresql/data
+      - twistmeet-postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U twistmeet"]
       interval: 5s
@@ -18,10 +18,10 @@ services:
   # Local-dev-only mail catcher (DECISIONS.md OD04: no production email provider chosen yet).
   # SMTP on 1025, web inbox UI on 1080 — nothing sent here leaves the machine.
   mailcatcher:
-    image: maildev/maildev:2.1.0
+    image: maildev/maildev:2.2.1
     ports:
-      - "1080:1080"
-      - "1025:1025"
+      - "127.0.0.1:8025:1080"
+      - "127.0.0.1:2525:1025"
 
 volumes:
   twistmeet-postgres-data:
