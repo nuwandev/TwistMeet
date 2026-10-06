@@ -127,13 +127,38 @@ field value onto the wire.
   legal weight, not a purely technical one.
 - **Everything else** (Spring Boot/Security/Data JPA/Validation/Mail/Actuator, Flyway, PostgreSQL
   JDBC driver, Next.js, React) is Apache-2.0/MIT/BSD-family — no copyleft obligations relevant to
-  a closed-source product. `npm audit` (web) currently reports **5 high-severity advisories** in
-  transitive dependencies — not reviewed line-by-line in this pass (would need `npm audit` output
-  triaged per advisory, which is its own piece of work); recorded here as a to-do rather than
-  silently ignored. No equivalent dependency-vulnerability scan was run against the Gradle
-  dependency tree in this pass either — both are worth wiring into CI (`npm audit`/OWASP
-  dependency-check or similar) as a follow-up, not attempted here given this review's time
-  budget.
+  a closed-source product.
+- **`npm audit` (web), triaged this pass (pre-integration review):** 5 high-severity advisories,
+  all one chain, all devDependency-only:
+  `eslint-config-next@16.3.8` (direct devDependency, matches the installed Next.js version) →
+  `@next/eslint-plugin-next@16.3.8` → `fast-glob@3.3.1` → `micromatch@4.0.8` → `braces@3.0.3`
+  (GHSA-vfj7-8cjw-p6xm, CVSS 7.5, stack-exhaustion DoS via deeply nested brace-expansion
+  patterns, CWE-674).
+  - **Production-reachable? No.** `npm ls braces micromatch fast-glob eslint-config-next
+    --omit=dev` returns empty — none of the four packages exist anywhere in the production
+    dependency tree; they are pulled in only by ESLint's own Next.js plugin, used at
+    lint-time/CI, never bundled into `next build`'s output or loaded at runtime.
+  - **Is the vulnerable code path even reachable here?** No. The DoS requires an attacker-
+    controlled glob/brace pattern reaching `micromatch`/`braces`. In this chain, the only
+    patterns ever passed are the plugin's own internal globbing of this repository's source
+    tree during lint — never user input, never anything from an HTTP request.
+  - **Fix available? No safe one.** `npm audit`'s own suggested fix is downgrading
+    `eslint-config-next` to `14.2.35` — a semver-major downgrade two Next.js releases behind
+    the one actually running (16.3.8), which would lose real lint coverage for this app's
+    actual framework version. Worse, it would not even remove the vulnerability: `braces`'s
+    advisory range is `<=3.0.3`, and `3.0.3` is the latest version `braces` has ever published
+    (full registry version list checked, newest is `3.0.3`) — there is currently **no patched
+    `braces` release to upgrade to**, at any `eslint-config-next`/`fast-glob`/`micromatch`
+    version. Per this task's explicit instruction not to downgrade past a security fix or
+    dismiss an advisory without evidence: **not downgraded** (it would be a real regression for
+    zero actual security gain, since the same unpatched `braces` would still be pulled in by
+    the older toolchain too) and **not silently dismissed** (documented here with the exact
+    dependency path and reachability evidence above).
+  - **Disposition:** accepted, dev-tooling-only risk — **not a merge/release blocker**. Re-check
+    `npm audit` after any future `eslint-config-next`/Next.js upgrade, and again once upstream
+    publishes a patched `braces` (track GHSA-vfj7-8cjw-p6xm).
+  - No equivalent dependency-vulnerability scan was run against the Gradle dependency tree in
+    this pass — worth wiring into CI (OWASP dependency-check or similar) as a follow-up.
 - **Secrets external to source control**: verified — `application.yml`/`application-
   production.yml` contain no secrets, every credential (`TWISTMEET_DB_*`,
   `TWISTMEET_SCRAMBLE_ENCRYPTION_KEY`, mail credentials) is `${ENV_VAR}` interpolation with a
@@ -194,7 +219,7 @@ decision to even scope correctly. Recorded as launch blockers, not attempted.
 | Scramble payload exposure | **Verified** (no payload in error/log/cache/export/public/realtime) |
 | TNoodle license review | **Explicitly open** — legal reviewer required before public launch |
 | cubing.js license | Lower-risk (MPL-2.0 electable); still needs legal sign-off |
-| Dependency vulnerability scan | **Not run** — `npm audit` shows 5 high-severity, untriaged |
+| Dependency vulnerability scan | **Triaged** — `npm audit`'s 5 high-severity advisories are one devDependency-only, non-production-reachable chain (`eslint-config-next`→`braces`, GHSA-vfj7-8cjw-p6xm) with no upstream patch yet; not downgraded (would regress Next.js lint coverage for zero security gain), not a merge blocker. Gradle dependency scan still **not run** |
 | Secrets external to source control | **Verified** |
 | Public name masking | **Built this session** |
 | Personal data export | **Built this session** — `/api/v1/me/export` (staff), `/api/v1/guest/events/{eventId}/me/export` (competitor) |
