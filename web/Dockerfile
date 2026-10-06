@@ -40,7 +40,10 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Non-root runtime user.
 RUN addgroup -S twistmeet && adduser -S twistmeet -G twistmeet
 
-COPY --from=build /app/public ./public
+# This project has no top-level public/ directory (App Router static assets — e.g.
+# favicon.ico — live under src/app/ instead), so there is nothing to copy from one; the usual
+# Next.js Docker example's `COPY .../public ./public` line is intentionally omitted here. Add it
+# back if a public/ directory is ever introduced.
 COPY --from=build --chown=twistmeet:twistmeet /app/.next/standalone ./
 COPY --from=build --chown=twistmeet:twistmeet /app/.next/static ./.next/static
 
